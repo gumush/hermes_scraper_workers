@@ -664,6 +664,39 @@ class GoogleReviewsScraper:
         except Exception:  # noqa: BLE001
             return False
 
+    @staticmethod
+    def _rating_block_text(driver: Chrome) -> str:
+        """Raw text of the place's own rating block, or "" if there is none."""
+        try:
+            return driver.execute_script("""
+                const hdr = document.querySelector(
+                    'div.LBgpqf, div.skqShb, div.tAiQdd');
+                const f7 = hdr && hdr.querySelector('div.F7nice');
+                return f7 ? (f7.innerText || '').trim() : '';
+            """) or ""
+        except Exception:  # noqa: BLE001
+            return ""
+
+    @staticmethod
+    def _reviews_withheld(rating_text: str) -> bool:
+        """
+        A rating with no count beside it: the reviews exist but were not sent.
+
+        Normally the block reads "4.6(16)" — score and how many. A business
+        with nothing to show has no score at all. Score without a count is a
+        third state, and it is the one Google serves to some clients: twenty
+        captures of two places had it, every one with zero review cards and no
+        Reviews tab, while the same places from a residential address carried
+        the count, the tab and the reviews.
+
+        Worth separating because the answer to it is different. A panel that
+        is still building resolves on the next attempt; this does not — ten
+        attempts on ten addresses returned it unchanged.
+        """
+        if not re.search(r"\d", rating_text):
+            return False
+        return not re.search(r"\(\s*[\d.,\s]+\s*\)", rating_text)
+
     def _place_panel_evidence(self, panel) -> List[str]:
         """
         Signs that this really is a rendered place panel, not a stalled page.
@@ -739,6 +772,8 @@ class GoogleReviewsScraper:
             answer = self._read_review_state(driver)
             if answer == "has":
                 return "has"
+            if answer == "withheld":
+                return "withheld"
             if answer == "none":
                 if none_since is None:
                     none_since = time.time()
@@ -776,6 +811,15 @@ class GoogleReviewsScraper:
             # picks up the neighbours — this very page carries four ratings
             # ("4.6 stars 798 Reviews" and friends) inside role=main, all of
             # them belonging to Maps' "people also search for" suggestions.
+            rating_text = self._rating_block_text(driver)
+            if self._reviews_withheld(rating_text):
+                # Distinct from "still loading": the count is missing, which
+                # is what the page looks like when the reviews module was not
+                # sent at all. Retrying the same way does not change it.
+                log.warning("Rating %r has no review count and there is no "
+                            "reviews tab (%s) — reviews withheld",
+                            rating_text, ", ".join(labels))
+                return "withheld"
             if self._has_own_rating(driver):
                 # A rating without a Reviews tab contradicts itself; do not
                 # guess which half is true.
@@ -2151,6 +2195,17 @@ class GoogleReviewsScraper:
             if availability == "none":
                 log.info("Place has no reviews — skipping the review stage")
                 reviews_tab_count = 0
+            elif availability == "withheld":
+                self.capture_failure(driver, "reviews_withheld",
+                                     place=place_name, place_id=place_id,
+                                     rating=self._rating_block_text(driver))
+                self._flag("reviews_withheld",
+                           "puan var ama yorum sayısı ve sekmesi yok — "
+                           "yorumlar bu adrese gönderilmiyor", place=place_name)
+                raise RuntimeError(
+                    f"{place_name or place_id}: rating shown without a review "
+                    "count and no reviews tab — the reviews were not served to "
+                    "this client")
             elif availability == "unknown":
                 # Could not prove either way. Failing here costs one retry;
                 # guessing "no reviews" would file an empty package as a

@@ -100,7 +100,11 @@ VM_FAIL_LIMIT = 3        # consecutive failed jobs before a VM is retired
 # the same reason: an empty list after a working tab is a page problem, and
 # the retry lands on a different VM anyway.
 PAGE_FAULT_CODES = {"reviews_undetermined", "reviews_tab_unreachable",
-                    "wrong_place_on_details", "no_reviews_collected"}
+                    "wrong_place_on_details", "no_reviews_collected",
+                    # Reviews exist but were not served to this client. Every
+                    # address we have tried gets the same answer, so it says
+                    # nothing about the machine that asked.
+                    "reviews_withheld"}
 DRAIN_TIMEOUT = 90       # seconds spent rescuing packages before VMs are killed
 LIVE_STATES = ("starting", "provisioning", "running", "closing")
 
