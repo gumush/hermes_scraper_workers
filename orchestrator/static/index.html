@@ -441,15 +441,15 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
       Verim için makineyi değil bölge/VM sayısını artır.</p>
     <div class="row">
       <label>tip
-        <select id="machine">
+        <select id="machine" onchange="saveSettings()">
           <option value="e2-standard-2">e2-standard-2 (2 vCPU)</option>
           <option value="e2-standard-4">e2-standard-4 (4 vCPU)</option>
           <option value="e2-standard-8">e2-standard-8 (8 vCPU)</option>
         </select></label>
       <label title="Kesinti riski var; kaybolan VM'in işleri kuyruğa döner, yerine yenisi açılır">
-        <input id="spot" type="checkbox" checked> spot (yaklaşık üçte bir fiyat)</label>
+        <input id="spot" type="checkbox" checked onchange="saveSettings()"> spot (yaklaşık üçte bir fiyat)</label>
       <label title="Hata anında ekran görüntüsü + DOM kaydeder, paketle birlikte gelir">
-        <input id="capture" type="checkbox" checked> hata teşhisi</label>
+        <input id="capture" type="checkbox" checked onchange="saveSettings()"> hata teşhisi</label>
     </div>
     <p class="sub" style="margin-top:10px">Bir mekan, failed sayılmadan önce kaç ayrı
       VM'de denensin? Her deneme farklı makineye ve farklı IP'ye düşer, o yüzden
@@ -458,7 +458,7 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
       alınamayan mekanın run'ı daha uzun meşgul etmesi.</p>
     <div class="row">
       <label>deneme (VM) sayısı <span class="rng">1–10</span>
-        <input id="attempts" type="number" min="1" max="10" value="3"></label>
+        <input id="attempts" type="number" min="1" max="10" value="3" onchange="saveSettings()"></label>
     </div>
   </div>
 
@@ -639,7 +639,15 @@ function saveSettings(){
   settings.capture=$('capture').checked;
   settings.attempts=clamp('attempts',+$('attempts').value,1,10,3);
   if($('tries')) $('tries').value=settings.attempts;
-  settings.zones=[...document.querySelectorAll('#zonepicker input.z:checked')].map(i=>i.value);
+  persist(); renderSetSummary();
+}
+/* Seçim listeden okunmaz, listede tutulur. Katlanmış bir kıtanın kutuları
+   DOM'da hiç bulunmuyor; seçimi işaretli kutulardan türetmek, kapalı
+   gruplardaki bölgeleri her kayıtta siliyordu. */
+function zoneToggle(el){
+  const sel=new Set(settings.zones);
+  el.checked ? sel.add(el.value) : sel.delete(el.value);
+  settings.zones=[...sel];
   persist(); renderSetSummary(); renderZones();
 }
 /* Girilen değer sınırın dışındaysa sessizce kırpmak, ayarın kaydedilmediği
@@ -712,7 +720,7 @@ function renderZones(){
         return `<label class="zonecard ${rateClass(r)}">
           <input class="z" type="checkbox" value="${esc(z.zone)}"
             ${sel.has(z.zone)?'checked':''} ${z.up?'':'disabled'}
-            onchange="saveSettings()">
+            onchange="zoneToggle(this)">
           <div><b>${esc(z.region)}</b><br><span class="pid">${esc(z.zone)}</span></div>
           <span class="zrate">${z.up?(r==null?'veri yok':r+'%'):'kapalı'}</span></label>`;
       }).join('')}</div>`:''}
