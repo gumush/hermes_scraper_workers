@@ -37,6 +37,7 @@ import tarfile
 import threading
 import time
 import uuid
+import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
@@ -263,7 +264,9 @@ class Execution:
             "run_name": self.run_name, "state": self.state,
             "error": self.error,
             "profile": self.profile_name, "provider": self.provider_name,
-            "vm_count": self.vm_count, "total": len(jobs), "counts": counts,
+            "vm_count": self.vm_count, "slots": self.slots,
+            "machine_type": self.machine_type, "spot": self.spot,
+            "total": len(jobs), "counts": counts,
             "max_attempts": self.max_attempts,
             "max_replacements": self.max_replacements,
             "replacements": self.replacements,
@@ -1110,6 +1113,142 @@ def delete_run(run_file: str, keep_json: bool = True):
     return removed
 
 
+# --- arşiv --------------------------------------------------------------------
+# Biten bir run'ın verisi tek bir zip'e alınıp buradan kaldırılıyor. Birim run
+# ADI: aynı adı taşıyan birden çok tanım dosyası bilerek aynı çıktı ağacına
+# yazıyor, dolayısıyla tek dosyayı arşivleyip çıktıyı silmek diğerlerini
+# yarım bırakırdı.
+def _archive_root(archive_dir: str) -> Path:
+    d = Path(archive_dir).expanduser()
+    if not d.is_absolute():
+        raise HTTPException(400, "arşiv klasörü mutlak yol olmalı")
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _run_family(run_file: str) -> Dict[str, Any]:
+    """Everything that shares this run's name: definitions, state, outputs."""
+    path = _run_path(run_file)
+    name = json.loads(path.read_text())["payload"]["run"]["name"]
+    files, stems = [], []
+    for p in sorted(RUNS_DIR.glob("*.json")):
+        try:
+            if json.loads(p.read_text())["payload"]["run"]["name"] == name:
+                files.append(p)
+                stems.append(p.stem.split(".")[0])
+        except Exception:  # noqa: BLE001
+            continue
+    out_dir = OUTPUTS_DIR / safe_name(name)
+    return {"name": name, "files": files, "stems": stems, "out_dir": out_dir}
+
+
+@app.get("/api/archives")
+def list_archives(archive_dir: str):
+    d = Path(archive_dir).expanduser()
+    if not d.is_dir():
+        return {"dir": str(d), "exists": False, "items": []}
+    items = []
+    for z in sorted(d.glob("*.zip"), reverse=True):
+        st = z.stat()
+        meta = {}
+        try:
+            with zipfile.ZipFile(z) as zf:
+                if "archive.json" in zf.namelist():
+                    meta = json.loads(zf.read("archive.json").decode("utf-8"))
+        except Exception:  # noqa: BLE001
+            pass
+        items.append({"file": z.name, "bytes": st.st_size,
+                      "at": datetime.fromtimestamp(st.st_mtime,
+                                                   timezone.utc).isoformat(),
+                      "run_name": meta.get("run_name"),
+                      "places": meta.get("places"),
+                      "execs": meta.get("execs")})
+    return {"dir": str(d), "exists": True, "items": items}
+
+
+@app.get("/api/runs/{run_file}/archive")
+def archive_preview(run_file: str):
+    """What archiving this run would take, before it takes it."""
+    fam = _run_family(run_file)
+    places = sum(1 for x in fam["out_dir"].iterdir()
+                 if x.is_dir()) if fam["out_dir"].is_dir() else 0
+    execs = sum(len(list((STATE_DIR / st).glob("exec-*")))
+                for st in fam["stems"] if (STATE_DIR / st).is_dir())
+    return {"run_name": fam["name"],
+            "definitions": [p.name for p in fam["files"]],
+            "places": places, "execs": execs,
+            "outputs_bytes": _dir_bytes(fam["out_dir"]),
+            "state_bytes": sum(_dir_bytes(STATE_DIR / st) for st in fam["stems"]),
+            "running": bool(_current and _current.run_stem in fam["stems"]
+                            and _current.state in LIVE_STATES)}
+
+
+@app.post("/api/runs/{run_file}/archive")
+def archive_run(run_file: str, archive_dir: str, stamp: str = ""):
+    """
+    Zip the run's definitions, outputs and exec state, then remove them.
+
+    Written to a temporary name and moved into place only once complete: a
+    half-written archive that the source has already been deleted for is the
+    one failure mode worth engineering against.
+    """
+    fam = _run_family(run_file)
+    if _current and _current.run_stem in fam["stems"] and _current.state in LIVE_STATES:
+        raise HTTPException(409, f"bu run çalışıyor ({_current.id}); önce durdur")
+    root = _archive_root(archive_dir)
+    tag = stamp or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    final = root / f"{safe_name(fam['name'])}-{tag}.zip"
+    tmp = final.with_suffix(".zip.part")
+
+    manifest = {
+        "run_name": fam["name"],
+        "definitions": [p.name for p in fam["files"]],
+        "archived_at": _now(),
+        "places": sum(1 for x in fam["out_dir"].iterdir() if x.is_dir())
+                  if fam["out_dir"].is_dir() else 0,
+        "execs": sum(len(list((STATE_DIR / st).glob("exec-*")))
+                     for st in fam["stems"] if (STATE_DIR / st).is_dir()),
+    }
+    written = 0
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED,
+                             compresslevel=6) as zf:
+            zf.writestr("archive.json",
+                        json.dumps(manifest, ensure_ascii=False, indent=1))
+            for f in fam["files"]:
+                zf.write(f, f"runs/{f.name}")
+                written += 1
+            for st in fam["stems"]:
+                d = STATE_DIR / st
+                for f in d.rglob("*") if d.is_dir() else []:
+                    if f.is_file():
+                        zf.write(f, f"state/{st}/{f.relative_to(d)}")
+                        written += 1
+            od = fam["out_dir"]
+            for f in (od.rglob("*") if od.is_dir() else []):
+                if f.is_file():
+                    zf.write(f, f"outputs/{od.name}/{f.relative_to(od)}")
+                    written += 1
+        os.replace(tmp, final)
+    except Exception as e:  # noqa: BLE001
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(500, f"arşiv yazılamadı: {e}") from e
+
+    for st in fam["stems"]:
+        d = STATE_DIR / st
+        if d.is_dir():
+            shutil.rmtree(d)
+    if fam["out_dir"].is_dir():
+        shutil.rmtree(fam["out_dir"])
+    for f in fam["files"]:
+        f.unlink()
+
+    size = final.stat().st_size
+    log.info("arşivlendi: %s (%d dosya, %s)", final.name, written, _mb(size))
+    return {"file": final.name, "path": str(final), "bytes": size,
+            "files": written, **manifest}
+
+
 @app.get("/api/profiles")
 def get_profiles():
     return _profiles()
@@ -1582,6 +1721,11 @@ def browse_runs():
                     ) if out_dir.is_dir() else 0,
                     "bytes": delivered_bytes,
                     "execs": execs})
+    # Newest activity first. Exec ids are timestamps, so the newest exec's id
+    # sorts as the run's recency; a run that never ran goes last rather than
+    # sitting among the ones you were just watching.
+    out.sort(key=lambda r: (r["execs"][0]["exec_id"] if r["execs"] else ""),
+             reverse=True)
     return out
 
 

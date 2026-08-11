@@ -123,6 +123,15 @@ label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-siz
 .delcard b{display:block;font-size:16px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px}
 .delcard .sub{margin-bottom:14px}
 #profsum,.pills{display:flex;flex-wrap:wrap;gap:4px 6px;margin-bottom:12px}
+.pills{gap:4px 14px;align-items:flex-start}
+.pgrp{display:flex;flex-wrap:wrap;gap:4px 6px;padding-left:11px;position:relative}
+.pgrp:first-child{padding-left:0}
+.pgrp::before{content:"";position:absolute;left:0;top:3px;bottom:3px;
+  width:1px;background:var(--line)}
+.pgrp:first-child::before{display:none}
+.glabel{display:block;width:100%;font-style:normal;font-size:8px;font-weight:800;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--subtle);
+  margin-bottom:2px}
 #profsum span,.pills span{background:var(--panel-muted);border:1px solid var(--line);
   border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;letter-spacing:-.01em}
 #profsum i,.pills i{color:var(--muted);font-style:normal;font-weight:750;font-size:9px;
@@ -298,6 +307,7 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
     <button id="tabCtl" class="on" onclick="showTab('ctl')">Kontrol</button>
     <button id="tabBrw" onclick="showTab('brw')">Runlar</button>
     <button id="tabZone" onclick="showTab('zone')">Bölgeler</button>
+    <button id="tabArc" onclick="showTab('arc')">Arşiv</button>
     <button id="tabSet" onclick="showTab('set')">Ayarlar</button>
   </nav>
   <div class="spacer"></div>
@@ -373,6 +383,12 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 </main>
 
 <!-- ===================== AYARLAR ===================== -->
+<div id="pageArc" class="hide">
+  <div class="eyebrow">Kaldırılmış run'lar</div>
+  <h2 style="font-size:24px;font-weight:700;letter-spacing:-.035em;margin-bottom:12px">Arşiv</h2>
+  <div id="arclist"></div>
+</div>
+
 <div id="pageSet" class="hide">
   <div class="eyebrow">Çalıştırma ayarları</div>
   <h2 style="font-size:24px;font-weight:700;letter-spacing:-.035em;margin-bottom:12px">Ayarlar</h2>
@@ -431,6 +447,19 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
       <button onclick="$('newprof').classList.add('hide')">Vazgeç</button>
       <button class="danger" id="np_del" onclick="deleteProfile()">Sil</button>
     </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Arşiv</h2>
+    <p class="sub">Biten run'lar tek bir zip'e alınıp buradan kaldırılır.
+      Zip; run tanımlarını, exec durumunu ve tüm çıktı ağacını içerir.</p>
+    <div class="row">
+      <label style="flex:1">klasör
+        <input id="arcdir" type="text" style="width:100%"
+          placeholder="/Users/…/Hermes_Arsiv" onchange="saveArc()">
+        <span class="info" tabindex="0" data-tip="Mutlak yol olmalı. Arşivleme birimi run ADIDIR: aynı adı taşıyan bütün tanım dosyaları, hepsinin exec durumu ve ortak çıktı klasörü tek zip'e girer — çünkü onlar zaten tek veri kümesi. Zip önce geçici adla yazılır, tamamlanınca yerine taşınır; yarım bir arşiv için kaynak silinmez.">i</span></label>
+      <button class="sm" onclick="showTab('arc')">Arşivi gör</button>
     </div>
   </div>
 
@@ -509,13 +538,15 @@ async function j(url,opts){const r=await fetch(url,opts);if(!r.ok)throw new Erro
 /* ---------- tabs ---------- */
 function showTab(t){
   for(const [k,page,tab] of [['ctl','pageCtl','tabCtl'],['brw','pageBrw','tabBrw'],
-                             ['zone','pageZone','tabZone'],['set','pageSet','tabSet']]){
+                             ['zone','pageZone','tabZone'],['set','pageSet','tabSet'],
+                             ['arc','pageArc','tabArc']]){
     $(page).classList.toggle('hide',t!==k);
     $(tab).classList.toggle('on',t===k);
   }
   if(t==='brw')loadBrowse();
   if(t==='zone')loadZones();
   if(t==='set'){loadSettings();renderProfList()}
+  if(t==='arc')loadArchives();
 }
 
 /* ---------- ayarlar ---------- */
@@ -530,7 +561,7 @@ const CONT_TR={europe:'Avrupa',us:'ABD',asia:'Asya',me:'Orta Doğu',
   australia:'Avustralya',africa:'Afrika'};
 const RETRY_TRIES=5;
 const DEFAULTS={machine:'e2-standard-2',spot:true,capture:true,attempts:3,
-  vms:2,slots:1,repl:24,vmfail:3,drain:90,
+  vms:2,slots:1,repl:24,vmfail:3,drain:90,arcdir:'',
   zones:['europe-west1-b','europe-west2-c','europe-west3-c','europe-west4-a',
          'europe-west6-a','europe-west8-a','europe-west9-a','europe-west10-a',
          'europe-west12-a','europe-north1-a','europe-north2-a',
@@ -632,6 +663,7 @@ async function loadSettings(){
   settings=loadedSettings();
   $('machine').value=settings.machine; $('spot').checked=settings.spot;
   $('capture').checked=settings.capture; $('attempts').value=settings.attempts;
+  if($('arcdir')) $('arcdir').value=settings.arcdir||'';
   applyFleet();
   try{(await j('/api/zones')).forEach(z=>zoneStats[z.zone]=z)}catch(e){}
   if(!zoneGroups.length){
@@ -887,20 +919,37 @@ async function tick(){
         : (dr&&s.state==='closed'
             ? `<div class="drain done">kapatıldı · drain'de ${dr.pulled} paket kurtarıldı${
                 dr.failed?`, ${dr.failed} alınamadı`:''}</div>` : ''));
+  /* Kutular anlamlı öbekler hâlinde: önce işin nerede olduğu, sonra ne hızda
+     gittiği, sonra filo, en sonda bu run'ın hangi ayarlarla başladığı. Ayar
+     öbeği sonda çünkü run boyunca değişmiyor — bakılan şey ilk üçü. */
+  const grp=(baslik,icerik)=>icerik
+    ? `<span class="pgrp"><i class="glabel">${baslik}</i>${icerik}</span>` : '';
   $('chips').innerHTML=
-    pill('durum',paused?'duraklatıldı':s.state,paused?'badge-warn':s.state==='error'?'badge-err':'')+
-    pill('done',`${done}/${total}`,done?'badge-ok':'')+
-    throughputPills(s.throughput)+
-    pill('scraping',c.scraping||0)+pill('transfer',c.transferring||0)+
-    pill('pending',c.pending||0)+pill('failed',failed,failed?'badge-err':'')+
-    vmPills(s.vms)+
-    pill('deneme',s.max_attempts??'–')+
-    (s.max_replacements!=null?pill('yedek VM',`${s.replacements??0}/${s.max_replacements}`,
-      (s.replacements??0)>=s.max_replacements?'badge-err':'')+
-      ((s.replacements??0)>=s.max_replacements
-        ? '<span class="badge-err" style="font-size:10px;font-weight:700">'
-          +'yerine açma bütçesi bitti — filo bu sayıda kalır</span>' : ''):'')+
-    pill('profil',esc(s.profile))+pill('provider',esc(s.provider));
+    grp('ilerleme',
+      pill('durum',paused?'duraklatıldı':s.state,paused?'badge-warn':s.state==='error'?'badge-err':'')+
+      pill('done',`${done}/${total}`,done?'badge-ok':'')+
+      pill('pending',c.pending||0)+
+      pill('scraping',c.scraping||0)+
+      pill('transfer',c.transferring||0)+
+      pill('failed',failed,failed?'badge-err':''))+
+    grp('hız',throughputPills(s.throughput))+
+    grp('filo',
+      vmPills(s.vms)+
+      (s.max_replacements!=null
+        ? pill('yedek VM',`${s.replacements??0}/${s.max_replacements}`,
+            (s.replacements??0)>=s.max_replacements?'badge-err':'')
+        : ''))+
+    grp('bu run\'ın ayarı',
+      pill('VM × slot',`${s.vm_count??'–'} × ${s.slots??'–'}`)+
+      pill('deneme',s.max_attempts??'–')+
+      pill('eleme',s.vm_fail_limit??'–')+
+      pill('makine',`${esc(s.machine_type||'–')}${s.spot?' · spot':''}`)+
+      pill('profil',esc(s.profile))+
+      pill('provider',esc(s.provider)));
+  if((s.replacements??0)>=(s.max_replacements??1e9))
+    $('chips').innerHTML+='<span class="badge-err" style="font-size:10px;'
+      +'font-weight:700;align-self:center">yerine açma bütçesi bitti — '
+      +'filo bu sayıda kalır</span>';
   $('prog').style.width=Math.round(100*(done+failed)/total)+'%';
   const active=Object.entries(s.jobs||{}).filter(([,x])=>x.state==='scraping'&&x.progress);
   // Elenmiş VM'ler run boyunca birikiyor; kapasiteyi okumayı zorlaştırmasın
@@ -954,6 +1003,8 @@ async function loadBrowse(){
           `<span class="live" title="${esc(r.running.join(', '))} çalışıyor">● çalışıyor</span>`:''}
         <span class="meta">${r.places} mekan · ${r.execs.length} exec${
           r.bytes?` · teslim ${r.delivered_places}/${r.places} · ${mb(r.bytes)}`:''}</span>
+        <button class="sm" title="Zip'e alıp arşiv klasörüne taşı"
+          onclick="event.stopPropagation();archiveRun('${esc(r.file)}')">arşivle</button>
         <button class="danger sm" title="Bu run'ın verilerini sil"
           onclick="event.stopPropagation();askDelete('${esc(r.file)}')">sil</button>
       </div>
@@ -1018,6 +1069,44 @@ async function quitService(){
     if(q.finished&&!q.error) return;      // exit adımı bağlantıyı koparacak
     if(q.error) clearInterval(t);
   },1000);
+}
+
+/* ---------- arşiv ---------- */
+function saveArc(){ settings.arcdir=$('arcdir').value.trim(); persist() }
+async function loadArchives(){
+  const d=settings.arcdir;
+  if(!d){ $('arclist').innerHTML='<div class="sub">Ayarlar\'dan arşiv klasörünü belirle.</div>'; return }
+  $('arclist').innerHTML='<div class="sub">okunuyor…</div>';
+  let r;
+  try{ r=await j('/api/archives?archive_dir='+encodeURIComponent(d)) }
+  catch(e){ $('arclist').innerHTML=`<div class="badge-err">${esc(e.message)}</div>`; return }
+  if(!r.exists){ $('arclist').innerHTML=`<div class="sub">klasör yok: ${esc(r.dir)}</div>`; return }
+  if(!r.items.length){ $('arclist').innerHTML=`<div class="sub">arşiv boş — ${esc(r.dir)}</div>`; return }
+  $('arclist').innerHTML=`<div class="sub" style="margin-bottom:8px">${esc(r.dir)}</div>`
+    +r.items.map(a=>`<div class="runcard"><div class="runhead" style="cursor:default">
+        <b>${esc(a.run_name||a.file)}</b>
+        <span class="rfile">${esc(a.file)}</span>
+        <span class="meta">${a.places??'?'} mekan · ${a.execs??'?'} exec · ${mb(a.bytes)}
+          · ${esc((a.at||'').slice(0,10))}</span>
+      </div></div>`).join('');
+}
+async function archiveRun(file){
+  if(!settings.arcdir){ alert('Önce Ayarlar\'dan arşiv klasörünü belirle.'); showTab('set'); return }
+  let f;
+  try{ f=await j(`/api/runs/${encodeURIComponent(file)}/archive`) }
+  catch(e){ alert('okunamadı: '+e.message); return }
+  if(f.running){ alert('Bu run çalışıyor. Önce durdur.'); return }
+  if(!confirm(`"${f.run_name}" arşivlenecek.\n\n`
+    +`${f.definitions.length} tanım dosyası · ${f.execs} exec · ${f.places} mekan\n`
+    +`${mb(f.outputs_bytes)} çıktı + ${mb(f.state_bytes)} exec verisi\n\n`
+    +`Hepsi tek zip'e alınıp ${settings.arcdir} altına taşınacak ve buradan silinecek.\n`
+    +`Aynı adı taşıyan TÜM tanım dosyaları birlikte gider.\n\nDevam?`))return;
+  try{
+    const r=await j(`/api/runs/${encodeURIComponent(file)}/archive`
+      +`?archive_dir=${encodeURIComponent(settings.arcdir)}`,{method:'POST'});
+    alert(`Arşivlendi: ${r.file} (${r.files} dosya, ${mb(r.bytes)})`);
+  }catch(e){ alert('arşivlenemedi: '+e.message); return }
+  loadBrowse();
 }
 
 /* ---------- run silme ---------- */

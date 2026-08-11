@@ -137,3 +137,67 @@ def test_start_request_carries_the_attempt_limit(sandbox):
     assert coordinator.StartRequest(
         run_file=RUN_FILE, profile="p", provider="local", vm_count=1, slots=1,
         max_attempts=6).max_attempts == 6
+
+
+# --- arşiv -------------------------------------------------------------------
+
+def test_archive_takes_the_whole_family_and_removes_it(sandbox, tmp_path):
+    """
+    Archiving is keyed on the run NAME, not the file: several definitions
+    share a name on purpose so their output lands in one tree, and taking
+    one file's outputs would leave the others pointing at nothing.
+    """
+    second = "demo-topup.hermes-google-places-run.json"
+    (sandbox["runs"] / second).write_text(json.dumps(
+        {"payload": {"run": {"name": "demo-run"}, "place_ids": ["B"]}}))
+    arc = tmp_path / "arc"
+
+    r = coordinator.archive_run(RUN_FILE, archive_dir=str(arc), stamp="test")
+    assert r["places"] == 1 and r["execs"] == 1
+    assert sorted(r["definitions"]) == sorted([RUN_FILE, second])
+
+    zips = list(arc.glob("*.zip"))
+    assert len(zips) == 1 and not list(arc.glob("*.part"))
+    import zipfile
+    with zipfile.ZipFile(zips[0]) as zf:
+        names = zf.namelist()
+        assert "archive.json" in names
+        assert f"runs/{RUN_FILE}" in names
+        assert f"runs/{second}" in names
+        assert any(n.startswith("outputs/demo-run/A/") for n in names)
+        assert any(n.startswith("state/demo/exec-") for n in names)
+
+    assert not (sandbox["runs"] / RUN_FILE).exists()
+    assert not (sandbox["runs"] / second).exists()
+    assert not (sandbox["state"] / "demo").exists()
+    assert not (sandbox["outputs"] / "demo-run").exists()
+
+
+def test_archive_preview_does_not_remove_anything(sandbox, tmp_path):
+    f = coordinator.archive_preview(RUN_FILE)
+    assert f["run_name"] == "demo-run" and f["places"] == 1
+    assert (sandbox["runs"] / RUN_FILE).is_file()
+    assert (sandbox["outputs"] / "demo-run").is_dir()
+
+
+def test_archive_refuses_while_the_run_is_live(sandbox, tmp_path, monkeypatch):
+    class Live:
+        run_stem = "demo"
+        state = "running"
+        id = "exec-live"
+
+    monkeypatch.setattr(coordinator, "_current", Live())
+    assert status_of(coordinator.archive_run, RUN_FILE,
+                     archive_dir=str(tmp_path / "arc")) == 409
+    assert (sandbox["outputs"] / "demo-run").is_dir()
+
+
+def test_archive_needs_an_absolute_directory(sandbox):
+    assert status_of(coordinator.archive_run, RUN_FILE,
+                     archive_dir="relatif/klasor") == 400
+    assert (sandbox["runs"] / RUN_FILE).is_file()
+
+
+def test_listing_an_absent_archive_dir_is_not_an_error(tmp_path):
+    r = coordinator.list_archives(str(tmp_path / "yok"))
+    assert r["exists"] is False and r["items"] == []
