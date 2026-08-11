@@ -151,6 +151,11 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 .execrow{padding:8px 14px;border-top:1px solid var(--line);display:flex;gap:14px;align-items:center;
   color:var(--muted);cursor:pointer;font-size:11px}
 .execrow:hover{background:var(--panel-muted)}
+/* Aynı run adını taşıyan birden çok tanım dosyası olabiliyor — çıktıların tek
+   ağaçta toplanması için ad bilerek paylaşılıyor. Ayırt eden şey dosya adı. */
+.rfile{font-family:var(--mono);font-size:10px;color:var(--subtle);
+  background:var(--panel-muted);border:1px solid var(--line);
+  border-radius:5px;padding:1px 6px}
 .pool{display:flex;gap:8px;align-items:center;cursor:default}
 .pool label{display:flex;gap:4px;align-items:center;font-size:10px;color:var(--muted)}
 .pool input{width:46px;padding:2px 5px;font-size:11px}
@@ -278,6 +283,9 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
     <label>VM <input id="vms" type="number" value="2" min="1" max="32"
       onchange="savePool()"></label>
     <label>slot <input id="slots" type="number" value="1" min="1" max="3"
+      onchange="savePool()"></label>
+    <label title="Bir mekan failed sayılmadan önce kaç ayrı VM'de denensin">deneme
+      <input id="tries" type="number" value="3" min="1" max="10"
       onchange="savePool()"></label>
     <button class="primary" id="startBtn" onclick="start()">Start</button>
     <button id="pauseBtn" onclick="togglePause()" disabled>Durdur</button>
@@ -450,6 +458,10 @@ const ZONES=[
   ['me-west1-a','Tel Aviv'],['me-central1-a','Doha'],['me-central2-a','Dammam'],
   ['us-central1-a','ABD orta'],['us-east1-b','ABD doğu'],
 ];
+/* Eksikleri toplarken varsayılan deneme sayısı normalden yüksek: o listedeki
+   mekanlar zaten bir kez düşmüş, çoğu da sayfanın o anki hâli yüzünden.
+   Ölçüm: hata paketi üreten 15 mekanın 7'si sonraki denemede tam geldi. */
+const RETRY_TRIES=5;
 const DEFAULTS={machine:'e2-standard-2',spot:true,capture:true,attempts:3,
   vms:2,slots:1,
   zones:ZONES.filter(z=>z[0].startsWith('europe')).map(z=>z[0])};
@@ -464,6 +476,7 @@ function saveSettings(){
   settings.spot=$('spot').checked;
   settings.capture=$('capture').checked;
   settings.attempts=Math.min(10,Math.max(1,+$('attempts').value||3));
+  if($('tries')) $('tries').value=settings.attempts;
   settings.zones=[...document.querySelectorAll('#zonepicker input:checked')].map(i=>i.value);
   localStorage.hermesSettings=JSON.stringify(settings);
   renderSetSummary();
@@ -474,10 +487,14 @@ function saveSettings(){
 function savePool(){
   settings.vms=Math.min(32,Math.max(1,+$('vms').value||2));
   settings.slots=Math.min(3,Math.max(1,+$('slots').value||1));
+  if($('tries')) settings.attempts=Math.min(10,Math.max(1,+$('tries').value||3));
   localStorage.hermesSettings=JSON.stringify(settings);
   renderSetSummary();
 }
-function applyPool(){ $('vms').value=settings.vms; $('slots').value=settings.slots }
+function applyPool(){
+  $('vms').value=settings.vms; $('slots').value=settings.slots;
+  if($('tries')) $('tries').value=settings.attempts;
+}
 function renderSetSummary(){
   const n=settings.zones.length;
   $('setsum').innerHTML=`${esc(settings.machine)} · ${settings.spot?'spot':'normal'} · ${n} bölge`
@@ -630,7 +647,7 @@ async function start(){
         provider:$('provider').value,vm_count:+$('vms').value,slots:+$('slots').value,
         machine_type:settings.machine,spot:settings.spot,
         capture_failures:settings.capture,zones:settings.zones,
-        max_attempts:settings.attempts})});
+        max_attempts:+$('tries').value||settings.attempts})});
     running=true;$('stopBtn').disabled=false;
   }catch(e){alert(e.message);$('startBtn').disabled=false}
 }
@@ -791,7 +808,9 @@ async function loadBrowse(){
   $('runlist').innerHTML=runs.map((r,i)=>`
     <div class="runcard">
       <div class="runhead" onclick="toggleRun(${i})">
-        <b>${esc(r.name)}</b>${(r.running||[]).length?
+        <b>${esc(r.name)}</b>
+        <span class="rfile" title="run tanım dosyası">${
+          esc(r.file.replace('.hermes-google-places-run.json',''))}</span>${(r.running||[]).length?
           `<span class="live" title="${esc(r.running.join(', '))} çalışıyor">● çalışıyor</span>`:''}
         <span class="meta">${r.places} mekan · ${r.execs.length} exec${
           r.bytes?` · teslim ${r.delivered_places}/${r.places} · ${mb(r.bytes)}`:''}</span>
@@ -814,6 +833,10 @@ async function loadBrowse(){
                 id="rv_${esc(e.exec_id)}"></label>
               <label>slot <input type="number" min="1" max="3" value="${settings.slots}"
                 id="rs_${esc(e.exec_id)}"></label>
+              <label title="Eksikler zaten bir kez düşmüş mekanlar — burada cömert olmak mantıklı"
+                >deneme <input type="number" min="1" max="10"
+                value="${Math.min(10,Math.max(settings.attempts,RETRY_TRIES))}"
+                id="rt_${esc(e.exec_id)}"></label>
             </span>
             <button onclick="event.stopPropagation();retryFailed('${esc(r.run_stem)}','${esc(e.exec_id)}')"
               title="Teslim edilmemiş mekanları yeni bir run'da tekrar dene">↻ eksikler</button>
@@ -865,6 +888,7 @@ async function retryFailed(stem,execId){
      sessizce 2 VM ile başlamasın diye ne kullanılacağı tek tek yazılıyor. */
   const vms=+($('rv_'+execId)||{}).value||settings.vms;
   const slots=+($('rs_'+execId)||{}).value||settings.slots;
+  const tries=+($('rt_'+execId)||{}).value||settings.attempts;
   const dagilim=Object.entries((f.places||[]).reduce((a,p)=>{
     const k=p.state||'?';a[k]=(a[k]||0)+1;return a},{}))
     .map(([k,v])=>`${k} ${v}`).join(' · ');
@@ -873,7 +897,8 @@ async function retryFailed(stem,execId){
     +`Havuz:    ${vms} VM · ${slots} slot · ${$('provider').value}`
     +` · profil ${$('profile').value}\n`
     +`Ayarlar sekmesinden:  ${settings.machine} · ${settings.spot?'spot':'normal'}`
-    +` · ${settings.zones.length} bölge · ${settings.attempts} deneme\n\n`
+    +` · ${settings.zones.length} bölge\n`
+    +`Deneme:   mekan başına ${tries} ayrı VM\n\n`
     +`Çıktılar aynı run klasörüne yazılır.\nDevam?`))return;
   try{
     const r=await j('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},
@@ -881,7 +906,7 @@ async function retryFailed(stem,execId){
         provider:$('provider').value,vm_count:vms,slots:slots,
         machine_type:settings.machine,spot:settings.spot,
         capture_failures:settings.capture,zones:settings.zones,
-        max_attempts:settings.attempts,
+        max_attempts:tries,
         place_ids:f.places.map(p=>p.place_id),retry_of:execId})});
     alert(`Başladı: ${r.exec_id} (${r.places} mekan)`);
     showTab('ctl');
