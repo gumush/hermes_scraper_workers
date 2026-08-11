@@ -1,0 +1,10 @@
+[project]
+name = "hermes-scraper-workers"
+version = "1.0.0"
+description = "Dağıtık Google Maps yorum toplayıcı: yerel orchestrator + geçici VM worker'ları"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+filterwarnings = ["ignore::DeprecationWarning"]

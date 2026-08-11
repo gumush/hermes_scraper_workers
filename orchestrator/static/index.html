@@ -1,0 +1,1163 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<title>Hermes Orchestrator</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+/* Hermes Operation Center tasarım sistemi — ../design_system/tokens.md
+   Renk, tipografi, radius ve kontrol ölçüleri oradan gelir; burada yeni
+   token icat edilmez. */
+:root{
+  --bg:#f5f6f8; --panel:#fff; --panel-muted:#f8f9fb;
+  --line:#e3e6ea; --line-strong:#d1d6dc;
+  --text:#192027; --muted:#68727d; --subtle:#89939e;
+  --accent:#2367e8; --accent-hover:#1857cb; --accent-soft:#eaf1ff;
+  --green:#168565; --green-soft:#e7f6f1;
+  --amber:#b56b08; --amber-soft:#fff3dc;
+  --red:#c33b43; --red-soft:#fff0f1;
+  --ui:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--text);font:500 11px/1.5 var(--ui)}
+
+/* --- üst çubuk --- */
+.topbar{position:sticky;top:0;z-index:20;display:flex;height:58px;align-items:center;
+  gap:20px;padding:0 18px;background:rgb(255 255 255/96%);border-bottom:1px solid var(--line);
+  backdrop-filter:saturate(180%) blur(6px)}
+.brand{display:flex;align-items:center;gap:10px}
+.brand img{width:30px;height:30px;border-radius:7px;background:var(--text);padding:3px}
+.brand h1{font-size:15px;font-weight:700;letter-spacing:-.02em}
+.brand small{display:block;color:var(--subtle);font-size:9px;font-weight:750;
+  text-transform:uppercase;letter-spacing:.09em}
+.tabs{display:flex;gap:4px}
+.tabs button{height:32px;padding:0 12px;background:transparent;border:1px solid transparent;
+  border-radius:7px;color:var(--muted);font:700 11px var(--ui);cursor:pointer}
+.tabs button:hover{background:var(--panel-muted);color:var(--text)}
+.tabs button.on{background:var(--accent-soft);border-color:#b8cdfa;color:var(--accent)}
+.spacer{flex:1}
+
+/* --- sayfa --- */
+main{padding:18px}
+.eyebrow{color:var(--accent);font-size:9px;font-weight:750;text-transform:uppercase;
+  letter-spacing:.09em;margin-bottom:4px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:16px;
+  margin-bottom:12px}
+.panel h2{font-size:14px;font-weight:700;margin-bottom:2px}
+.panel p.sub{color:var(--muted);font-size:11px;margin-bottom:12px}
+
+/* --- kontroller --- */
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.row+.row{margin-top:10px}
+select,input,button{height:34px;background:var(--panel);color:var(--text);
+  border:1px solid var(--line-strong);border-radius:7px;padding:0 9px;font:500 11px var(--ui)}
+input[type=number]{width:72px}
+input[type=checkbox]{height:auto;width:auto}
+button{font-weight:700;cursor:pointer;background:var(--accent-soft);border-color:#b8cdfa;color:var(--accent)}
+button:hover{background:#dbe8ff}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary:hover{background:var(--accent-hover)}
+button.danger{background:var(--panel);border-color:var(--line-strong);color:var(--red)}
+button.danger:hover{background:var(--red-soft)}
+button:disabled{opacity:.45;cursor:default}
+button.sm{height:26px;padding:0 9px;font-size:10px}
+label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:10px;font-weight:700}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* --- metrik şeridi --- */
+.chips{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;
+  background:var(--line);border:1px solid var(--line);border-radius:9px;overflow:hidden;margin-bottom:12px}
+.chip{background:var(--panel);padding:10px 12px}
+.chip span{display:block;color:var(--muted);font-size:9px;font-weight:750;
+  text-transform:uppercase;letter-spacing:.05em}
+.chip b{font-size:18px;font-weight:700;letter-spacing:-.02em}
+
+/* --- durum renkleri --- */
+.badge-ok,.s-done{color:var(--green)}
+.badge-err,.s-failed{color:var(--red)}
+.badge-warn,.s-scraping,.s-transferring{color:var(--amber)}
+.s-pending{color:var(--subtle)}
+
+/* --- VM kartları --- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:8px;margin-bottom:12px}
+.vm{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.vm b{font-size:11px}
+.vm .st{float:right;height:22px;display:inline-flex;align-items:center;padding:0 8px;
+  border-radius:999px;font-size:9px;font-weight:750;text-transform:uppercase;letter-spacing:.045em;
+  background:var(--panel-muted);border:1px solid var(--line);color:var(--muted)}
+.st.ready{background:var(--green-soft);border-color:#bfe5d8;color:var(--green)}
+.st.provisioning{background:var(--amber-soft);border-color:#f0dcb4;color:var(--amber)}
+.st.lost,.st.failed{background:var(--red-soft);border-color:#f5ced1;color:var(--red)}
+.vm small{color:var(--muted);display:block;font-size:10px}
+.vm small.work{color:var(--accent);font-weight:700;margin-top:4px}
+.vm small.why{color:var(--subtle);font-style:italic;margin-top:3px}
+.vbadge{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:999px;
+  font-size:10px;font-weight:700;background:var(--panel-muted);border:1px solid var(--line);
+  color:var(--muted)}
+.vbadge.ok{background:var(--green-soft);border-color:#bfe5d8;color:var(--green)}
+.vbadge.err{background:var(--red-soft);border-color:#f5ced1;color:var(--red)}
+.drain{background:var(--amber-soft);border:1px solid #f0dcb4;color:var(--amber);
+  border-radius:9px;padding:9px 12px;margin-bottom:10px;font-size:11px;font-weight:700}
+.drain.done{background:var(--green-soft);border-color:#bfe5d8;color:var(--green)}
+.setsum{color:var(--muted);font-weight:700;cursor:pointer}
+.setsum:hover{color:var(--text)}
+#delbox{position:fixed;inset:0;background:rgba(15,18,22,.45);display:flex;
+  align-items:center;justify-content:center;z-index:60}
+#delbox.hide{display:none}
+.delcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:18px 20px;max-width:560px;box-shadow:0 18px 48px rgba(15,18,22,.22)}
+.delcard b{display:block;font-size:16px;font-weight:700;letter-spacing:-.02em;margin-bottom:6px}
+.delcard .sub{margin-bottom:14px}
+#profsum,.pills{display:flex;flex-wrap:wrap;gap:4px 6px;margin-bottom:12px}
+#profsum span,.pills span{background:var(--panel-muted);border:1px solid var(--line);
+  border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;letter-spacing:-.01em}
+#profsum i,.pills i{color:var(--muted);font-style:normal;font-weight:750;font-size:9px;
+  text-transform:uppercase;letter-spacing:.05em;margin-right:5px}
+.zonegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+.zonecard{display:flex;align-items:center;gap:9px;background:var(--panel);
+  border:1px solid var(--line);border-radius:9px;padding:9px 11px;cursor:pointer;
+  color:var(--text);font-weight:500}
+.zonecard:hover{background:var(--panel-muted)}
+.zonecard b{font-size:11px;font-weight:700}
+.zonecard .zrate{margin-left:auto;font-size:10px;font-weight:700;color:var(--subtle)}
+.zonecard.ok .zrate{color:var(--green)}
+.zonecard.warn .zrate{color:var(--amber)}
+.zonecard.err .zrate{color:var(--red)}
+
+.bar{height:7px;background:var(--line);border-radius:999px;overflow:hidden;margin:10px 0}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:999px;transition:width .4s}
+
+/* --- tablolar --- */
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{height:34px;padding:0 10px;color:var(--muted);font-size:9px;font-weight:750;text-align:left;
+  text-transform:uppercase;letter-spacing:.05em;background:var(--panel-muted);
+  border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+
+#log{background:var(--panel-muted);border:1px solid var(--line);border-radius:9px;padding:10px 12px;
+  height:200px;overflow-y:auto;font:11px/1.6 var(--mono);color:var(--muted);white-space:pre-wrap}
+#log .e{color:var(--text);font-weight:700}
+.hide{display:none}
+#newprof{background:var(--panel-muted);border:1px solid var(--line);border-radius:9px;
+  padding:12px;margin-bottom:12px}
+
+/* --- run tarayıcısı --- */
+.runcard{background:var(--panel);border:1px solid var(--line);border-radius:9px;margin-bottom:8px;overflow:hidden}
+.runhead{padding:12px 14px;cursor:pointer;display:flex;gap:14px;align-items:baseline}
+.runhead:hover{background:var(--panel-muted)}
+.runhead b{font-size:13px;font-weight:700}
+.runhead .meta{color:var(--muted);font-size:11px}
+.execrow{padding:8px 14px;border-top:1px solid var(--line);display:flex;gap:14px;align-items:center;
+  color:var(--muted);cursor:pointer;font-size:11px}
+.execrow:hover{background:var(--panel-muted)}
+.pool{display:flex;gap:8px;align-items:center;cursor:default}
+.pool label{display:flex;gap:4px;align-items:center;font-size:10px;color:var(--muted)}
+.pool input{width:46px;padding:2px 5px;font-size:11px}
+.execrow.on{color:var(--text);background:var(--accent-soft)}
+.placewrap{border-top:1px solid var(--line)}
+.prow{cursor:pointer}
+.prow:hover td{background:var(--panel-muted)}
+.prow.on td{background:var(--accent-soft)}
+.pdetail>td{padding:14px;background:var(--panel-muted)}
+.detail-grid{display:grid;grid-template-columns:300px 1fr;gap:16px}
+@media(max-width:900px){.detail-grid{grid-template-columns:1fr}}
+.infobox{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:14px;font-size:11px}
+.infobox h3{font-size:13px;font-weight:700;margin-bottom:6px}
+.infobox .kv{display:flex;gap:8px;margin:3px 0}
+.infobox .kv span:first-child{color:var(--muted);min-width:76px}
+.exmeta{padding:8px 14px;color:var(--muted);font-size:11px;border-bottom:1px solid var(--line);
+  background:var(--panel-muted)}
+.pid{color:var(--subtle);font-family:var(--mono);font-size:9px}
+.flag{color:var(--red);font-size:9px;font-weight:750;text-transform:uppercase;letter-spacing:.045em;
+  background:var(--red-soft);border:1px solid #f5ced1;border-radius:999px;padding:1px 7px;cursor:help}
+.stars{color:var(--amber)}
+.live{color:var(--green);font-size:9px;font-weight:750;text-transform:uppercase;
+  letter-spacing:.045em;background:var(--green-soft);border:1px solid #bfe5d8;
+  border-radius:999px;padding:1px 8px;margin-left:8px}
+.failbtn{display:inline-flex;align-items:center;height:26px;padding:0 10px;
+  background:var(--accent-soft);border:1px solid #b8cdfa;border-radius:7px;
+  color:var(--accent);font-size:10px;font-weight:700;text-decoration:none}
+.failbtn:hover{background:#dbe8ff}
+.capture{background:var(--panel);border:1px solid var(--line);border-radius:9px;
+  padding:12px;margin-bottom:10px}
+.capture .kv{display:flex;gap:8px;margin:2px 0;font-size:11px}
+.capture .kv span:first-child{color:var(--muted);min-width:84px}
+.shot{width:100%;border:1px solid var(--line);border-radius:8px;margin-top:6px}
+.expand{border:1px solid var(--line);border-radius:7px;margin:6px 0;background:var(--panel)}
+.expand>summary{cursor:pointer;padding:7px 10px;font-size:10px;font-weight:700;
+  color:var(--accent);list-style:none}
+.expand>summary::-webkit-details-marker{display:none}
+.expand>summary::before{content:"▸ ";color:var(--muted)}
+.expand[open]>summary::before{content:"▾ "}
+.expand>summary:hover{background:var(--panel-muted)}
+.expand>summary a{margin-left:8px;color:var(--muted);font-weight:500}
+.src{max-height:420px;overflow:auto;margin:0;padding:10px;border-top:1px solid var(--line);
+  background:var(--panel-muted);font:10px/1.55 var(--mono);white-space:pre-wrap;
+  word-break:break-word;color:var(--text)}
+
+/* --- yoğunluk --- */
+.pt-days{display:flex;gap:3px;margin:6px 0}
+.pt-days button{flex:1;height:24px;padding:0;background:var(--panel-muted);border:1px solid var(--line);
+  color:var(--muted);border-radius:6px;font:700 9px var(--ui)}
+.pt-days button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.pt-chart{display:flex;align-items:flex-end;gap:2px;height:64px;border-bottom:1px solid var(--line)}
+.pt-chart i{flex:1;background:var(--accent);opacity:.8;border-radius:3px 3px 0 0;min-height:1px}
+.pt-chart i.now{background:var(--amber);opacity:1}
+.pt-chart i:hover{opacity:1}
+.pt-axis{display:flex;justify-content:space-between;color:var(--subtle);font-size:9px;margin-top:3px}
+
+.abouts{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.abouts i{font-style:normal;background:var(--panel-muted);border:1px solid var(--line);
+  border-radius:999px;padding:2px 9px;font-size:10px}
+.abouts i.off{color:var(--subtle);text-decoration:line-through}
+.sect{color:var(--muted);margin:10px 0 4px;font-size:9px;font-weight:750;
+  text-transform:uppercase;letter-spacing:.05em}
+.review{border-bottom:1px solid var(--line);padding:9px 0}
+.review:last-child{border:0}
+.review .head{display:flex;gap:10px;align-items:baseline}
+.review .head b{font-size:11px;font-weight:700}
+.review .date{color:var(--subtle);font-size:10px}
+.review p{margin-top:4px;font-size:11px;white-space:pre-wrap}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px;margin-top:6px}
+.photos img{width:100%;aspect-ratio:1;object-fit:contain;background:var(--panel-muted);
+  border-radius:8px;border:1px solid var(--line);cursor:pointer}
+.ph-kind{position:relative}
+.ph-kind::after{content:attr(data-k);position:absolute;bottom:4px;left:4px;
+  background:rgb(25 32 39/82%);color:#fff;font-size:9px;font-weight:750;text-transform:uppercase;
+  letter-spacing:.045em;padding:1px 7px;border-radius:999px}
+
+/* --- lightbox --- */
+#lb{position:fixed;inset:0;background:rgb(25 32 39/72%);display:flex;align-items:center;
+  justify-content:center;z-index:50}
+#lb img{max-width:92vw;max-height:88vh;border-radius:10px;box-shadow:0 20px 70px rgb(25 32 39/24%)}
+#lb .nav,#lb #lbClose{position:fixed;background:rgb(255 255 255/92%);border:1px solid var(--line);
+  color:var(--text);border-radius:10px;cursor:pointer}
+#lb .nav{top:50%;transform:translateY(-50%);font-size:26px;width:44px;height:64px}
+#lb #lbPrev{left:18px}#lb #lbNext{right:18px}
+#lb #lbClose{top:14px;right:18px;font-size:16px;width:34px;height:34px}
+#lb #lbCount{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);color:#fff;
+  background:rgb(25 32 39/82%);padding:4px 12px;border-radius:999px;font-size:10px;font-weight:700}
+#lb.hide{display:none}  /* id, .hide'ı özgüllükte yener — en sonda kalmalı */
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <img src="/static/hermes_logo.svg" alt="Hermes">
+    <div><h1>Hermes Orchestrator</h1><small>Dağıtık scrape yönetimi</small></div>
+  </div>
+  <nav class="tabs">
+    <button id="tabCtl" class="on" onclick="showTab('ctl')">Kontrol</button>
+    <button id="tabBrw" onclick="showTab('brw')">Runlar</button>
+    <button id="tabZone" onclick="showTab('zone')">Bölgeler</button>
+    <button id="tabSet" onclick="showTab('set')">Ayarlar</button>
+  </nav>
+  <div class="spacer"></div>
+  <span id="gcpinfo" style="color:var(--muted);font-size:10px;font-weight:700"></span>
+</header>
+<main>
+
+<!-- ===================== KONTROL ===================== -->
+<div id="pageCtl">
+  <div class="panel">
+    <div class="eyebrow">Çalıştırma</div>
+    <h2>Yeni run başlat</h2>
+    <p class="sub">Run, profil ve VM ayarlarını seç. Bölge başarı oranları için Bölgeler sekmesine bak.</p>
+    <p class="sub"><b id="setsum" class="setsum" title="Ayarlar sekmesine git"
+       onclick="showTab('set')"></b></p>
+  <div class="row" id="setup">
+    <select id="run"></select>
+    <select id="profile" onchange="renderProfSummary()"></select>
+    <select id="provider">
+      <option value="local">local (test)</option>
+      <option value="gcp">gcp</option>
+    </select>
+    <label>VM <input id="vms" type="number" value="2" min="1" max="32"
+      onchange="savePool()"></label>
+    <label>slot <input id="slots" type="number" value="1" min="1" max="3"
+      onchange="savePool()"></label>
+    <button class="primary" id="startBtn" onclick="start()">Start</button>
+    <button id="pauseBtn" onclick="togglePause()" disabled>Durdur</button>
+    <button class="danger" id="stopBtn" onclick="shutdownAll()" disabled>Tüm VM'leri kapat</button>
+    <button onclick="restartServer()" title="Kodu yeniden yükler (çalışan run varken reddedilir)">⟳ Yeniden başlat</button>
+    <button class="sm" onclick="verifyNow()" title="gcloud'a sorup gerçekten VM kalmadığını doğrular">VM'leri doğrula</button>
+    <span id="verifyBadge"></span>
+  </div>
+  </div>
+  <div id="profsum"></div>
+  <div id="drainbar"></div>
+  <div class="pills" id="chips"></div>
+  <div class="bar"><i id="prog" style="width:0"></i></div>
+  <div class="row" id="vmfilter" style="margin-bottom:8px">
+    <label><input type="checkbox" id="showDeleted" onchange="tick()"> silinenleri göster</label>
+    <label><input type="checkbox" id="showLost" onchange="tick()"> kayıpları göster</label>
+    <span id="vmhidden" style="color:var(--subtle);font-size:10px"></span>
+  </div>
+  <div class="grid" id="vmgrid"></div>
+  <table id="failtbl" class="hide">
+    <thead><tr><th>place_id</th><th>maps</th><th>durum</th><th>deneme</th><th>hata</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div id="log"></div>
+</div>
+
+<!-- ===================== RUNLAR ===================== -->
+<div id="pageBrw" class="hide">
+  <div class="eyebrow">Teslim edilen veri</div>
+  <h2 style="font-size:24px;font-weight:700;letter-spacing:-.035em;margin-bottom:12px">Run'lar</h2>
+  <div id="runlist"></div>
+</div>
+
+<!-- ===================== BÖLGELER ===================== -->
+<div id="pageZone" class="hide">
+  <div class="eyebrow">Bölge geçmişi</div>
+  <h2 style="font-size:24px;font-weight:700;letter-spacing:-.035em;margin-bottom:4px">Bölgeler</h2>
+  <div class="panel" style="padding:0"><div class="exmeta" style="border-bottom:0">Tüm run'ların birikmiş kaydı. Başarı = teslim / (teslim + boş + detay yok).
+    Yeni bölge seçerken buraya bak; iyi çalışanlarda birden fazla VM açmak mantıklı.</div>
+  </div><div id="zonelist"></div></div>
+</div>
+
+</main>
+
+<!-- ===================== AYARLAR ===================== -->
+<div id="pageSet" class="hide">
+  <div class="eyebrow">Çalıştırma ayarları</div>
+  <h2 style="font-size:24px;font-weight:700;letter-spacing:-.035em;margin-bottom:12px">Ayarlar</h2>
+
+  <div class="panel">
+    <h2>Makine</h2>
+    <p class="sub">Tek slotta büyük makinenin hıza faydası ölçülmedi (172 sn vs 189 sn).
+      Verim için makineyi değil bölge/VM sayısını artır.</p>
+    <div class="row">
+      <label>tip
+        <select id="machine">
+          <option value="e2-standard-2">e2-standard-2 (2 vCPU)</option>
+          <option value="e2-standard-4">e2-standard-4 (4 vCPU)</option>
+          <option value="e2-standard-8">e2-standard-8 (8 vCPU)</option>
+        </select></label>
+      <label title="Kesinti riski var; kaybolan VM'in işleri kuyruğa döner, yerine yenisi açılır">
+        <input id="spot" type="checkbox" checked> spot (yaklaşık üçte bir fiyat)</label>
+      <label title="Hata anında ekran görüntüsü + DOM kaydeder, paketle birlikte gelir">
+        <input id="capture" type="checkbox" checked> hata teşhisi</label>
+    </div>
+    <p class="sub" style="margin-top:10px">Bir mekan, failed sayılmadan önce kaç ayrı
+      VM'de denensin? Her deneme farklı makineye ve farklı IP'ye düşer, o yüzden
+      sayfa kaynaklı hatalarda artırmak işe yarıyor — ölçüm: hata paketi üreten
+      15 mekanın 7'si sonraki denemede tam teslim edildi. Bedeli, gerçekten
+      alınamayan mekanın run'ı daha uzun meşgul etmesi.</p>
+    <div class="row">
+      <label>deneme (VM) sayısı
+        <input id="attempts" type="number" min="1" max="10" value="3"></label>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Profiller</h2>
+    <p class="sub">Bir profile tıklayınca düzenlenir. Kontrol sekmesi yalnızca seçim yapar.</p>
+    <div class="row" id="proflist"></div>
+    <div id="newprof" class="hide">
+    <div class="row">
+      <b id="np_title">Yeni profil</b>
+      <input id="np_name" placeholder="profil adı">
+      <select id="np_mode"><option value="fresh">fresh</option><option value="update">update</option></select>
+    </div>
+    <div class="row">
+      <label title="Kaç yorum indirilecek (0 = hepsi)">yorum sayısı
+        <input id="np_rev" type="number" min="0" value="100"></label>
+      <label title="İşletmenin (owner) kaç fotoğrafı indirilecek">owner foto sayısı
+        <input id="np_owner" type="number" min="0" value="60"></label>
+      <label title="Bu kadar yorum fotoğrafı görülene dek yorum sayısı aşılır">
+        min yorum fotoğrafı <input id="np_photo" type="number" min="0" value="50"></label>
+      <label title="Foto hedefi için aşılabilecek üst sınır (0 = sınırsız)">
+        yorum tavanı <input id="np_cap" type="number" min="0" value="250"></label>
+      <label title="Yorumlara eklenen fotoğrafları da indir">
+        <input id="np_dl" type="checkbox" checked style="width:auto"> yorum fotoğraflarını indir</label>
+    </div>
+    <div class="row">
+      <button class="primary" onclick="saveProfile()">Kaydet</button>
+      <button onclick="$('newprof').classList.add('hide')">Vazgeç</button>
+      <button class="danger" id="np_del" onclick="deleteProfile()">Sil</button>
+    </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Bölgeler</h2>
+    <p class="sub">VM'ler seçili bölgelere sırayla dağıtılır — 5 bölge seçip 10 VM istersen
+      her bölgeye 2 düşer. Başarı oranları geçmiş run'lardan; Bölgeler sekmesinde detayı var.</p>
+    <div class="row" style="margin-bottom:8px">
+      <button class="sm" onclick="zonePick('eu')">Avrupa hepsi</button>
+      <button class="sm" onclick="zonePick('good')">Başarısı %70+ olanlar</button>
+      <button class="sm" onclick="zonePick('none')">Temizle</button>
+      <span id="zonecount" style="color:var(--muted);font-size:10px"></span>
+    </div>
+    <div id="zonepicker" class="zonegrid"></div>
+  </div>
+</div>
+
+<!-- run silme -->
+<div id="delbox" class="hide">
+  <div class="delcard">
+    <b id="del_title"></b>
+    <div id="del_body" class="sub"></div>
+    <div class="row">
+      <button onclick="doDelete(true)" id="del_keep">JSON kalsın, gerisini sil</button>
+      <button class="danger" onclick="doDelete(false)" id="del_all">JSON dahil hepsini sil</button>
+      <button onclick="$('delbox').classList.add('hide')">Vazgeç</button>
+    </div>
+  </div>
+</div>
+
+<!-- lightbox -->
+<div id="lb" class="hide">
+  <button id="lbClose" onclick="lbHide()">✕</button>
+  <button id="lbPrev" class="nav" onclick="lbStep(-1)">‹</button>
+  <img id="lbImg" alt="">
+  <button id="lbNext" class="nav" onclick="lbStep(1)">›</button>
+  <div id="lbCount"></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+async function j(url,opts){const r=await fetch(url,opts);if(!r.ok)throw new Error(await r.text());return r.json()}
+
+/* ---------- tabs ---------- */
+function showTab(t){
+  for(const [k,page,tab] of [['ctl','pageCtl','tabCtl'],['brw','pageBrw','tabBrw'],
+                             ['zone','pageZone','tabZone'],['set','pageSet','tabSet']]){
+    $(page).classList.toggle('hide',t!==k);
+    $(tab).classList.toggle('on',t===k);
+  }
+  if(t==='brw')loadBrowse();
+  if(t==='zone')loadZones();
+  if(t==='set'){loadSettings();renderProfList()}
+}
+
+/* ---------- ayarlar ---------- */
+/* Aday bölgeler. Orta Doğu ve ABD listede ama seçili değil: ölçümde
+   me-west1 %5, me-central1 ve ABD %0 teslim etti — silmek yerine görünür
+   bırakıldı ki neden kullanılmadığı tabloda okunabilsin. */
+const ZONES=[
+  ['europe-west1-b','Belçika'],['europe-west2-c','Londra'],['europe-west3-c','Frankfurt'],
+  ['europe-west4-a','Hollanda'],['europe-west4-b','Hollanda b'],['europe-west6-a','Zürih'],['europe-west8-a','Milano'],
+  ['europe-west9-a','Paris'],['europe-west10-a','Berlin'],['europe-west12-a','Torino'],
+  ['europe-north1-a','Finlandiya'],['europe-north2-a','Stockholm'],
+  ['europe-southwest1-a','Madrid'],['europe-central2-a','Varşova'],
+  ['me-west1-a','Tel Aviv'],['me-central1-a','Doha'],['me-central2-a','Dammam'],
+  ['us-central1-a','ABD orta'],['us-east1-b','ABD doğu'],
+];
+const DEFAULTS={machine:'e2-standard-2',spot:true,capture:true,attempts:3,
+  vms:2,slots:1,
+  zones:ZONES.filter(z=>z[0].startsWith('europe')).map(z=>z[0])};
+let settings={...DEFAULTS}, zoneStats={};
+
+function loadedSettings(){
+  try{return {...DEFAULTS, ...JSON.parse(localStorage.hermesSettings||'{}')}}
+  catch(e){return {...DEFAULTS}}
+}
+function saveSettings(){
+  settings.machine=$('machine').value;
+  settings.spot=$('spot').checked;
+  settings.capture=$('capture').checked;
+  settings.attempts=Math.min(10,Math.max(1,+$('attempts').value||3));
+  settings.zones=[...document.querySelectorAll('#zonepicker input:checked')].map(i=>i.value);
+  localStorage.hermesSettings=JSON.stringify(settings);
+  renderSetSummary();
+}
+/* VM ve slot sayısı sayfa yenilenince kutuların value'suna, yani 2 ve 1'e
+   dönüyordu; "eksikleri dene" o hâlde 13 VM'lik bir run'ı sessizce 2 VM ile
+   sürdürüyordu. Artık son kullanılan değer saklanıyor. */
+function savePool(){
+  settings.vms=Math.min(32,Math.max(1,+$('vms').value||2));
+  settings.slots=Math.min(3,Math.max(1,+$('slots').value||1));
+  localStorage.hermesSettings=JSON.stringify(settings);
+  renderSetSummary();
+}
+function applyPool(){ $('vms').value=settings.vms; $('slots').value=settings.slots }
+function renderSetSummary(){
+  const n=settings.zones.length;
+  $('setsum').innerHTML=`${esc(settings.machine)} · ${settings.spot?'spot':'normal'} · ${n} bölge`
+    + ` · ${settings.attempts} deneme · ${settings.vms} VM · ${settings.slots} slot`
+    + (n?'':' <b class="badge-err">bölge seçilmedi</b>');
+  const c=$('zonecount'); if(c)c.textContent=`${n} bölge seçili`;
+}
+async function loadSettings(){
+  settings=loadedSettings();
+  $('machine').value=settings.machine; $('spot').checked=settings.spot;
+  $('capture').checked=settings.capture;
+  $('attempts').value=settings.attempts;
+  try{(await j('/api/zones')).forEach(z=>zoneStats[z.zone]=z)}catch(e){}
+  /* Geçmişte kullanılmış ama listede olmayan bölgeler (ör. aynı bölgenin
+     başka harfli zone'u) kaybolmasın; istatistikleri var, seçilebilsinler. */
+  const known=new Set(ZONES.map(z=>z[0]));
+  const extra=Object.keys(zoneStats).filter(z=>z!=='?'&&!known.has(z)).sort()
+                    .map(z=>[z,'listede yok']);
+  $('zonepicker').innerHTML=[...ZONES,...extra].map(([z,label])=>{
+    const st=zoneStats[z], rate=st&&st.success_rate!=null?st.success_rate:null;
+    const cls=rate==null?'':rate>=75?'ok':rate>=60?'warn':'err';
+    return `<label class="zonecard ${cls}">
+      <input type="checkbox" value="${z}" ${settings.zones.includes(z)?'checked':''}
+             onchange="saveSettings()">
+      <div><b>${esc(label)}</b><br><span class="pid">${esc(z)}</span></div>
+      <span class="zrate">${rate==null?'veri yok':rate+'%'}</span></label>`;
+  }).join('');
+  renderSetSummary();
+}
+function zonePick(kind){
+  document.querySelectorAll('#zonepicker input').forEach(i=>{
+    const st=zoneStats[i.value];
+    i.checked = kind==='eu' ? i.value.startsWith('europe')
+              : kind==='good' ? !!(st&&st.success_rate>=70)
+              : false;
+  });
+  saveSettings();
+}
+
+/* ---------- bölge istatistikleri ---------- */
+async function loadZones(){
+  let z;
+  try{z=await j('/api/zones')}catch(e){$('zonelist').innerHTML=esc(e.message);return}
+  const bar=r=>{
+    if(r.success_rate==null)return'';
+    const c=r.success_rate>=75?'var(--green)':r.success_rate>=60?'var(--amber)':'var(--red)';
+    return `<div style="background:var(--line);border-radius:3px;height:6px;width:90px">
+      <div style="width:${r.success_rate}%;background:${c};height:100%;border-radius:3px"></div></div>`;
+  };
+  $('zonelist').innerHTML=`<table>
+    <thead><tr><th>bölge</th><th>başarı</th><th></th><th>teslim</th><th>boş</th>
+      <th>detay yok</th><th>ort. tarama</th><th>VM kayıp</th><th>VM emekli</th>
+      <th>aynı IP</th><th>açılamadı</th><th>run</th></tr></thead>
+    <tbody>${z.map(r=>`
+      <tr>
+        <td>${esc(r.zone)}<br><span class="pid">${esc(r.region)}</span></td>
+        <td>${r.success_rate!=null?r.success_rate+'%':'–'}</td>
+        <td>${bar(r)}</td>
+        <td>${r.delivered}</td>
+        <td>${r.empty||'–'}</td>
+        <td>${r.no_details||'–'}</td>
+        <td>${r.avg_scrape_s?dur(r.avg_scrape_s):'–'}</td>
+        <td>${r.vm_lost||'–'}</td>
+        <td>${r.vm_retired||'–'}</td>
+        <td>${r.duplicate_ip||'–'}</td>
+        <td>${r.provision_failed||'–'}</td>
+        <td>${r.runs}</td>
+      </tr>`).join('')}
+    </tbody></table>`;
+}
+
+/* ---------- kontrol (unchanged behaviour) ---------- */
+let running=false;
+let profiles={};
+async function loadSetup(keep){
+  const runs=await j('/api/runs');
+  $('run').innerHTML=runs.map(r=>`<option value="${esc(r.file)}">${esc(r.name)} (${r.places})${r.completed_execs?' ✓'+r.completed_execs:''}</option>`).join('');
+  profiles=await j('/api/profiles');
+  const names=Object.keys(profiles);
+  $('profile').innerHTML=names.map(p=>`<option>${esc(p)}</option>`).join('');
+  if(keep&&names.includes(keep))$('profile').value=keep;
+  renderProfSummary();renderProfList();
+  try{
+    const g=await j('/api/gcp');
+    $('gcpinfo').innerHTML=g.ok?`gcp: ${esc(g.project)}`
+      :`<span class="badge-err">gcp: ${esc(g.reason||'yok')}</span>`;
+  }catch(e){}
+}
+
+/* ---------- profil düzenleme ---------- */
+let editing=null;   // düzenlenen profilin eski adı, yeni profilde null
+function renderProfSummary(){
+  const p=profiles[$('profile').value];
+  if(!p){$('profsum').innerHTML='';return}
+  const rev=p.mode==='update'?'son yorumdan itibaren':(p.max_reviews||0)===0?'tüm yorumlar':p.max_reviews+' yorum';
+  const bit=(l,v)=>`<span><i>${l}</i>${esc(String(v))}</span>`;
+  $('profsum').innerHTML=bit('mod',p.mode)+bit('yorum',rev)
+    +bit('owner foto',p.place_photos_limit??60)
+    +bit('min yorum fot.',p.min_review_photos??0)
+    +bit('yorum tavanı',p.max_reviews_cap??250)
+    +bit('yorum fot.',p.download_review_images?'indir':'indirme');
+}
+function renderProfList(){
+  const el=$('proflist'); if(!el)return;
+  el.innerHTML=Object.keys(profiles).map(n=>
+    `<button onclick="editProfileNamed('${esc(n)}')">${esc(n)}</button>`).join('')
+    +'<button class="primary" onclick="newProfile()">+ profil</button>';
+}
+function editProfileNamed(n){editing=n;fillProfForm(n,profiles[n]||{})}
+function fillProfForm(name,p){
+  $('np_title').textContent=name?`Profil: ${name}`:'Yeni profil';
+  $('np_name').value=name||'';
+  $('np_mode').value=p.mode||'fresh';
+  $('np_rev').value=p.max_reviews??100;
+  $('np_owner').value=p.place_photos_limit??60;
+  $('np_photo').value=p.min_review_photos??50;
+  $('np_cap').value=p.max_reviews_cap??250;
+  $('np_dl').checked=p.download_review_images!==false;
+  $('np_del').classList.toggle('hide',!name);
+  $('newprof').classList.remove('hide');
+}
+function newProfile(){editing=null;fillProfForm('',{})}
+async function saveProfile(){
+  const name=$('np_name').value.trim();
+  if(!name){alert('profil adı gerekli');return}
+  try{
+    await j('/api/profiles',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({name,mode:$('np_mode').value,
+        max_reviews:+$('np_rev').value,min_review_photos:+$('np_photo').value,
+        max_reviews_cap:+$('np_cap').value,
+        place_photos_limit:+$('np_owner').value,
+        download_review_images:$('np_dl').checked,
+        rename_from:editing})});
+  }catch(e){alert('kaydedilemedi: '+e.message);return}
+  $('newprof').classList.add('hide');editing=null;await loadSetup(name);renderProfList();
+}
+async function deleteProfile(){
+  if(!editing||!confirm(`"${editing}" profili silinsin mi?`))return;
+  try{await j('/api/profiles/'+encodeURIComponent(editing),{method:'DELETE'})}
+  catch(e){alert('silinemedi: '+e.message);return}
+  $('newprof').classList.add('hide');editing=null;await loadSetup();renderProfList();
+}
+async function start(){
+  if(!settings.zones.length){ showTab('set'); return }   /* bölgesiz başlatma yok */
+
+  $('startBtn').disabled=true;
+  try{
+    await j('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({run_file:$('run').value,profile:$('profile').value,
+        provider:$('provider').value,vm_count:+$('vms').value,slots:+$('slots').value,
+        machine_type:settings.machine,spot:settings.spot,
+        capture_failures:settings.capture,zones:settings.zones,
+        max_attempts:settings.attempts})});
+    running=true;$('stopBtn').disabled=false;
+  }catch(e){alert(e.message);$('startBtn').disabled=false}
+}
+async function shutdownAll(){
+  if(!confirm('Tüm VM\'ler kapatılacak. Emin misin?'))return;
+  await j('/api/shutdown',{method:'POST'});
+}
+async function restartServer(){
+  try{await j('/api/restart',{method:'POST'})}
+  catch(e){alert('yeniden başlatılamadı: '+e.message);return}
+  $('gcpinfo').innerHTML='<span class="badge-warn">yeniden başlatılıyor…</span>';
+  // sunucu geri gelene dek yokla, sonra sayfayı tazele
+  for(let i=0;i<40;i++){
+    await new Promise(r=>setTimeout(r,500));
+    try{await j('/api/profiles');location.reload();return}catch(e){}
+  }
+  $('gcpinfo').innerHTML='<span class="badge-err">geri gelmedi — terminale bak</span>';
+}
+/* Koordinatörün kendi kaydına değil, gcloud'a sorar: kapatmanın gerçekten
+   tuttuğunu bağımsız doğrulamanın tek yolu bu. */
+async function verifyNow(){
+  $('verifyBadge').innerHTML='<span class="vbadge">gcloud sorgulanıyor…</span>';
+  try{
+    const r=await j('/api/verify');
+    if(r.error){$('verifyBadge').innerHTML=`<span class="vbadge err">${esc(r.error)}</span>`;return}
+    const rem=r.remaining;
+    $('verifyBadge').innerHTML = rem===null
+      ? `<span class="vbadge">${esc(r.note||'çalışan run yok')}</span>`
+      : rem.length===0
+        ? `<span class="vbadge ok">✓ gcloud: hiç VM yok · ${new Date().toLocaleTimeString('tr')}</span>`
+        : `<span class="vbadge err">⚠ gcloud: ${rem.length} VM ayakta — ${esc(rem.join(', '))}</span>`;
+  }catch(e){$('verifyBadge').innerHTML=`<span class="vbadge err">doğrulanamadı: ${esc(e.message)}</span>`}
+}
+let paused=false;
+async function togglePause(){
+  $('pauseBtn').disabled=true;
+  try{const r=await j('/api/pause?paused='+(!paused),{method:'POST'});paused=r.paused}
+  catch(e){alert(e.message)}
+  $('pauseBtn').disabled=false;
+}
+function chip(l,v,cls){return `<div class="chip"><span>${l}</span><b class="${cls||''}">${v}</b></div>`}
+function pill(l,v,cls){return `<span class="${cls||''}"><i>${l}</i>${v}</span>`}
+/* teslim hızı: son N paketin varış aralığı + kalan süre tahmini */
+/* Kaç VM ayakta, kaçı iş görüyor, kaçı elendi — kapasitenin run boyunca
+   nasıl değiştiği tek bakışta görünsün. */
+function vmPills(vms){
+  vms=vms||[];
+  const n=st=>vms.filter(v=>v.state===st).length;
+  const ready=n('ready'), busy=vms.filter(v=>v.state==='ready'&&v.active>0).length;
+  const acilan=n('provisioning')+n('pending');
+  const gitti=n('deleted')+n('lost')+n('failed');
+  return pill('vm',`${ready}${acilan?`+${acilan}`:''}`,ready?'badge-ok':'')+
+         pill('çalışan',busy,busy?'':'badge-warn')+
+         pill('elenen',gitti,gitti?'badge-err':'');
+}
+/* Hız ölçülmeden önce de yerini tutuyor: sonradan belirip satırı kaydırmasın
+   diye eksik değerler "–" olarak yazılıyor, kutu sayısı hiç değişmiyor. */
+function throughputPills(t){
+  t=t||{};
+  return pill(t.window?`hız (son ${t.window})`:'hız',
+              t.seconds_per_job?`${dur(t.seconds_per_job)}/iş`:'–')+
+         pill('saatlik',t.per_hour?`${t.per_hour} iş`:'–')+
+         pill('eta',t.eta_seconds!=null?'~'+dur(t.eta_seconds):'–');
+}
+/* worker'ın o an ne yaptığı */
+const PHASE={navigating:'sayfaya gidiliyor',reviews:'yorumlar',
+  details:'işletme bilgileri',photos:'fotoğraflar',post:'son işlemler'};
+function progLine(p){
+  if(!p)return'';
+  const name=PHASE[p.phase]||p.phase;
+  if(p.phase==='reviews'){
+    const n=p.done??0, t=p.total||null, pt=p.photos_target||null;
+    // max_reviews aşıldıysa devam etme sebebi yorum değil, foto hedefidir
+    if(t&&n>=t&&pt)return `▸ ${name} ${n} · foto ${p.photos||0}/${pt}`;
+    return `▸ ${name} ${n}${t?'/'+t:''}${p.photos?` · ${p.photos} foto`:''}`;
+  }
+  return `▸ ${name}${p.step?' · '+esc(p.step):''}${p.total?` (${p.total})`:''}`;
+}
+async function tick(){
+  if($('pageCtl').classList.contains('hide'))return;
+  let s;try{s=await j('/api/status')}catch(e){return}
+  if(s.state==='idle')return;
+  running=['starting','provisioning','running','closing'].includes(s.state);
+  $('startBtn').disabled=running;
+  $('stopBtn').disabled=!running&&s.state!=='completed'&&s.state!=='error';
+  paused=!!s.paused;
+  $('pauseBtn').disabled=!running;
+  $('pauseBtn').textContent=paused?'Devam et':'Durdur';
+  $('pauseBtn').classList.toggle('primary',paused);
+  const c=s.counts||{};
+  const done=(c.done||0),failed=(c.failed||0),total=s.total||1;
+  // Kapanış sessiz bir durum olmasın: transfer sayacı drain sırasında 0
+  // görünür, çünkü o işler uçuşta değil — VM'lerin neden hâlâ açık olduğu
+  // buradan okunsun.
+  const dr=s.drain;
+  $('drainbar').innerHTML = (s.state==='closing'&&dr&&dr.state!=='bitti')
+    ? `<div class="drain">kapanıyor · ${dr.vms} VM'den paket çekiliyor ·
+        <b>${dr.pulled}</b> alındı${dr.failed?` · ${dr.failed} alınamadı`:''} ·
+        en fazla ${Math.max(0,Math.round(dr.deadline-Date.now()/1000))} sn, sonra VM'ler silinir</div>`
+    : (s.state==='closing'
+        ? '<div class="drain">kapanıyor · VM\'ler siliniyor…</div>'
+        : (dr&&s.state==='closed'
+            ? `<div class="drain done">kapatıldı · drain'de ${dr.pulled} paket kurtarıldı${
+                dr.failed?`, ${dr.failed} alınamadı`:''}</div>` : ''));
+  $('chips').innerHTML=
+    pill('durum',paused?'duraklatıldı':s.state,paused?'badge-warn':s.state==='error'?'badge-err':'')+
+    pill('done',`${done}/${total}`,done?'badge-ok':'')+
+    throughputPills(s.throughput)+
+    pill('scraping',c.scraping||0)+pill('transfer',c.transferring||0)+
+    pill('pending',c.pending||0)+pill('failed',failed,failed?'badge-err':'')+
+    vmPills(s.vms)+
+    pill('deneme',s.max_attempts??'–')+
+    pill('profil',esc(s.profile))+pill('provider',esc(s.provider));
+  $('prog').style.width=Math.round(100*(done+failed)/total)+'%';
+  const active=Object.entries(s.jobs||{}).filter(([,x])=>x.state==='scraping'&&x.progress);
+  // Elenmiş VM'ler run boyunca birikiyor; kapasiteyi okumayı zorlaştırmasın
+  // diye varsayılan olarak gizli, ama sayıları hep yazılı.
+  const allVms=s.vms||[];
+  const showDel=$('showDeleted').checked, showLost=$('showLost').checked;
+  const vms=allVms.filter(v=>
+    (v.state!=='deleted'||showDel) && (v.state!=='lost'||showLost));
+  const hid=allVms.length-vms.length;
+  $('vmhidden').textContent=hid?`${hid} VM gizli`:'';
+  $('vmgrid').innerHTML=vms.map(v=>`
+    <div class="vm"><span class="st ${v.state}">${v.state}</span>
+      <b>${esc(v.name)}</b>
+      <small>aktif ${v.active} · done ${v.done} · fail ${v.failed}</small>
+      <small>${esc(v.zone||'local')} · ${esc(v.egress_ip||'ip?')}</small>
+      ${v.state_reason?`<small class="why" title="${esc(v.state_since||'')}">${
+        esc(v.state_reason)}</small>`:''}
+      ${active.filter(([,x])=>x.vm===v.name).map(([p,x])=>
+        `<small class="work">${progLine(x.progress)}</small>`).join('')}
+    </div>`).join('');
+  const fails=Object.entries(s.jobs||{}).filter(([,x])=>x.state==='failed'||x.error);
+  $('failtbl').classList.toggle('hide',!fails.length);
+  $('failtbl').querySelector('tbody').innerHTML=fails.map(([p,x])=>
+    `<tr><td>${esc(p)}</td><td>${mapsA(p)}</td><td class="s-${x.state}">${x.state}</td>`
+    +`<td>${x.attempts}</td><td>${esc((x.error||'').slice(0,80))}</td></tr>`).join('');
+  if(s.log_tail){
+    $('log').innerHTML=s.log_tail.map(e=>{
+      const{ts,event,...rest}=e;
+      return `${ts.slice(11,19)} <span class="e">${esc(event)}</span> ${esc(JSON.stringify(rest))}`
+    }).join('\n');
+    $('log').scrollTop=$('log').scrollHeight;
+  }
+  if(s.remaining_after_shutdown!==null&&s.remaining_after_shutdown!==undefined){
+    const ok=s.remaining_after_shutdown.length===0;
+    $('verifyBadge').innerHTML=ok
+      ?'<span class="vbadge ok">✓ kapatma doğrulandı · kalan VM 0</span>'
+      :`<span class="vbadge err">⚠ kalan VM: ${esc(s.remaining_after_shutdown.join(', '))}</span>`;
+  }
+}
+
+/* ---------- run browser ---------- */
+let curExec=null; // {run_stem, exec_id}
+async function loadBrowse(){
+  const runs=await j('/api/browse/runs');
+  $('runlist').innerHTML=runs.map((r,i)=>`
+    <div class="runcard">
+      <div class="runhead" onclick="toggleRun(${i})">
+        <b>${esc(r.name)}</b>${(r.running||[]).length?
+          `<span class="live" title="${esc(r.running.join(', '))} çalışıyor">● çalışıyor</span>`:''}
+        <span class="meta">${r.places} mekan · ${r.execs.length} exec${
+          r.bytes?` · teslim ${r.delivered_places}/${r.places} · ${mb(r.bytes)}`:''}</span>
+        <button class="danger sm" title="Bu run'ın verilerini sil"
+          onclick="event.stopPropagation();askDelete('${esc(r.file)}')">sil</button>
+      </div>
+      <div id="runbody${i}" class="hide">
+        ${r.execs.length?r.execs.map(e=>`
+          <div class="execrow" id="ex_${esc(r.run_stem)}_${esc(e.exec_id)}"
+               onclick="openExec('${esc(r.run_stem)}','${esc(e.exec_id)}',this)">
+            <span>${esc(e.exec_id)}</span>
+            <span>${esc(e.state||'?')}</span>
+            <span>${esc(e.profile||'')}</span>
+            <span>done ${e.counts.done||0} · fail ${e.counts.failed||0} · paket ${e.packages}${
+              e.bytes?' · '+mb(e.bytes):''}</span>
+            <span>süre ${dur(e.elapsed_s)}</span>
+            <span>hız ${e.per_place_s?dur(e.per_place_s)+'/mekan · '+e.per_hour+' mekan/sa':'–'}</span>
+            <span class="pool" onclick="event.stopPropagation()">
+              <label>VM <input type="number" min="1" max="32" value="${settings.vms}"
+                id="rv_${esc(e.exec_id)}"></label>
+              <label>slot <input type="number" min="1" max="3" value="${settings.slots}"
+                id="rs_${esc(e.exec_id)}"></label>
+            </span>
+            <button onclick="event.stopPropagation();retryFailed('${esc(r.run_stem)}','${esc(e.exec_id)}')"
+              title="Teslim edilmemiş mekanları yeni bir run'da tekrar dene">↻ eksikler</button>
+          </div>`).join(''):'<div class="execrow">henüz exec yok</div>'}
+        <div class="placewrap hide" id="places_${esc(r.run_stem)}"></div>
+      </div>
+    </div>`).join('');
+}
+function toggleRun(i){$('runbody'+i).classList.toggle('hide')}
+
+/* ---------- run silme ---------- */
+/* Silinecek olan geri gelmiyor, o yüzden onay ekranı tahmin değil gerçek
+   rakam gösteriyor: kaç mekan teslim edilmiş, kaç MB gidiyor. */
+let delFile=null;
+async function askDelete(file){
+  let f;
+  try{f=await j(`/api/runs/${encodeURIComponent(file)}/footprint`)}
+  catch(e){alert('okunamadı: '+e.message);return}
+  if(f.running){alert('Bu run çalışıyor. Önce durdur.');return}
+  delFile=file;
+  $('del_title').textContent=f.name;
+  $('del_body').innerHTML=
+    `${f.delivered_places} mekan teslim edilmiş · ${mb(f.outputs_bytes)} çıktı`
+    + ` · ${f.execs} exec · ${mb(f.state_bytes)} exec verisi<br>`
+    + `Run tanımı ${f.places} mekanlık liste, ${sz(f.json_bytes)}. `
+    + `Kalırsa run listede durur ve sıfırdan tekrar başlatılabilir.`;
+  $('delbox').classList.remove('hide');
+}
+async function doDelete(keep){
+  const box=$('delbox');
+  [...box.querySelectorAll('button')].forEach(b=>b.disabled=true);
+  try{
+    await j(`/api/runs/${encodeURIComponent(delFile)}?keep_json=${keep}`,{method:'DELETE'});
+  }catch(e){alert('silinemedi: '+e.message)}
+  [...box.querySelectorAll('button')].forEach(b=>b.disabled=false);
+  box.classList.add('hide');delFile=null;
+  loadBrowse();loadSetup();
+}
+
+/* teslim edilmemiş mekanları yeni bir run'da tekrar dene */
+async function retryFailed(stem,execId){
+  if(!settings.zones.length){ showTab('set'); return }
+  let f;
+  try{f=await j(`/api/browse/${stem}/${execId}/failed`)}
+  catch(e){alert('okunamadı: '+e.message);return}
+  if(!f.count){alert('Bu exec\'te teslim edilmemiş mekan yok.');return}
+  /* Havuz ayarları iki ayrı yerden geliyor ve VM/slot alanları sayfa
+     yenilenince varsayılana (2/1) dönüyor — "eksikleri dene" dediğinde
+     sessizce 2 VM ile başlamasın diye ne kullanılacağı tek tek yazılıyor. */
+  const vms=+($('rv_'+execId)||{}).value||settings.vms;
+  const slots=+($('rs_'+execId)||{}).value||settings.slots;
+  const dagilim=Object.entries((f.places||[]).reduce((a,p)=>{
+    const k=p.state||'?';a[k]=(a[k]||0)+1;return a},{}))
+    .map(([k,v])=>`${k} ${v}`).join(' · ');
+  if(!confirm(
+    `${f.count} mekan tekrar denenecek (${dagilim}).\n\n`
+    +`Havuz:    ${vms} VM · ${slots} slot · ${$('provider').value}`
+    +` · profil ${$('profile').value}\n`
+    +`Ayarlar sekmesinden:  ${settings.machine} · ${settings.spot?'spot':'normal'}`
+    +` · ${settings.zones.length} bölge · ${settings.attempts} deneme\n\n`
+    +`Çıktılar aynı run klasörüne yazılır.\nDevam?`))return;
+  try{
+    const r=await j('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({run_file:f.run_file,profile:$('profile').value,
+        provider:$('provider').value,vm_count:vms,slots:slots,
+        machine_type:settings.machine,spot:settings.spot,
+        capture_failures:settings.capture,zones:settings.zones,
+        max_attempts:settings.attempts,
+        place_ids:f.places.map(p=>p.place_id),retry_of:execId})});
+    alert(`Başladı: ${r.exec_id} (${r.places} mekan)`);
+    showTab('ctl');
+  }catch(e){alert('başlatılamadı: '+e.message)}
+}
+
+async function openExec(stem,execId,el){
+  document.querySelectorAll('.execrow').forEach(x=>x.classList.remove('on'));
+  el.classList.add('on');
+  curExec={run_stem:stem,exec_id:execId};
+  const wrap=$('places_'+stem);
+  wrap.classList.remove('hide');
+  wrap.innerHTML='<div style="padding:10px;color:var(--muted)">yükleniyor…</div>';
+  const data=await j(`/api/browse/${stem}/${execId}/places`);
+  const ex=data.exec||{};
+  wrap.innerHTML=`<div class="exmeta">toplam süre ${dur(ex.elapsed_s)}${
+      ex.per_place_s?` · ${dur(ex.per_place_s)}/mekan · ${ex.per_hour} mekan/saat`:''}${
+      ex.recent_s?` · son ${ex.recent_window} teslim: ${dur(ex.recent_s)}/iş (${ex.recent_per_hour} iş/saat)`:''}</div>
+    <table>
+    <thead><tr><th></th><th>mekan</th><th>durum</th><th>süre</th><th>puan</th><th>toplam yorum</th>
+    <th>indirilen yorum</th><th>owner foto</th><th>yorum foto</th><th>paket</th><th>harita</th></tr></thead>
+    <tbody>${data.places.map((p,i)=>`
+      <tr class="prow" id="pr_${i}" onclick="togglePlace('${esc(stem)}','${esc(execId)}','${esc(p.place_id)}',${i})">
+        <td>▸</td>
+        <td>${esc(p.name||'—')}${(p.flags||[]).length?` <span class="flag" title="${
+             esc((p.flags||[]).map(f=>f.code+': '+f.message).join(' | '))}">⚑ ${p.flags.length}</span>`:''}${
+             p.has_log?` <a class="pid" style="color:var(--accent)" target="_blank" rel="noopener"
+               onclick="event.stopPropagation()"
+               href="/api/browse/${esc(stem)}/${esc(execId)}/file/${esc(p.place_id)}/debug.log">log</a>`:''}
+          <br><span class="pid">${esc(p.place_id)}</span></td>
+        <td class="s-${esc(p.state)}">${esc(p.state)}</td>
+        <td title="${p.scrape_s!=null?`tarama ${dur(p.scrape_s)}`+
+             (p.queue_s?` · kuyrukta ${dur(p.queue_s)}`:'')+
+             ` · transfer ${dur(p.transfer_s)} · toplam ${dur(p.duration_s)}`:''}"
+        >${p.running?'⏱ '+dur(p.duration_s):dur(p.scrape_s??p.duration_s)}${
+             p.queue_s>5?`<span style="color:var(--muted)"> +${dur(p.queue_s)} bekleme</span>`:''}</td>
+        <td>${p.rating??'–'}</td>
+        <td>${p.review_count??'–'}</td>
+        <td>${p.reviews_downloaded}</td>
+        <td>${p.owner_photos}</td>
+        <td>${p.review_images}</td>
+        <td>${p.bytes?(p.bytes/1024).toFixed(0)+' KB':'–'}</td>
+        <td>${mapsLink(p)}</td>
+      </tr>
+      <tr class="pdetail hide" id="pd_${i}"><td colspan="11"></td></tr>`).join('')}
+    </tbody></table>`;
+}
+
+/* bayt -> MB/GB */
+function mb(b){
+  if(!b)return'0 MB';
+  const m=b/1048576;
+  return m>=1024?(m/1024).toFixed(2)+' GB':m.toFixed(m<10?1:0)+' MB';
+}
+/* Run tanımı kilobayt ölçeğinde; MB'a yuvarlayınca "0.0 MB" görünüyordu. */
+function sz(n){return n<1048576?`${Math.round(n/1024)} KB`:mb(n)}
+/* saniye -> okunur süre */
+function dur(s){
+  if(s==null)return'–';
+  if(s<60)return s.toFixed(0)+' sn';
+  const m=Math.floor(s/60);
+  if(m<60)return m+' dk '+Math.round(s%60)+' sn';
+  return Math.floor(m/60)+' sa '+(m%60)+' dk';
+}
+/* Scraper'ın gerçekten açtığı adres. place_url'den (/maps/place/?q=place_id:)
+   farklı: worker /maps/search/?api=1&query_place_id ile gidiyor, sayfa da
+   ona göre geliyor. Elde aynısını açabilmek için burada o biçim veriliyor. */
+function searchUrl(pid){
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(pid)}`
+       + `&query_place_id=${encodeURIComponent(pid)}&gl=tr&hl=en`;
+}
+function mapsA(pid,label){
+  return `<a href="${searchUrl(pid)}" target="_blank" rel="noopener"
+    onclick="event.stopPropagation()" title="Scraper'ın açtığı adres"
+    style="color:var(--accent)">${label||'Maps ↗'}</a>`;
+}
+
+/* satırı açmadan Maps'te aç */
+function mapsLink(p){
+  const u=p.resolved_url||searchUrl(p.place_id);
+  return u?`<a href="${esc(u)}" target="_blank" rel="noopener"
+    onclick="event.stopPropagation()" style="color:var(--accent)">Maps ↗</a>`:'–';
+}
+
+let openIdx=null;
+async function togglePlace(stem,execId,placeId,i){
+  const row=$('pd_'+i), tr=$('pr_'+i);
+  if(openIdx===i){row.classList.add('hide');tr.classList.remove('on');openIdx=null;return}
+  if(openIdx!==null){$('pd_'+openIdx).classList.add('hide');$('pr_'+openIdx).classList.remove('on')}
+  openIdx=i;tr.classList.add('on');row.classList.remove('hide');
+  row.firstElementChild.innerHTML='<span style="color:var(--muted)">yükleniyor…</span>';
+  let d;
+  try{d=await j(`/api/browse/${stem}/${execId}/place/${encodeURIComponent(placeId)}`)}
+  catch(e){row.firstElementChild.innerHTML='<span class="badge-err">'+esc(e.message)+'</span>';return}
+  try{
+    row.firstElementChild.innerHTML=(d.failures&&!d.row.package)
+      ? renderFailure(d) : renderDetail(d);
+  }catch(e){
+    // Çizim çökerse satır sonsuza dek "yükleniyor…" kalıyordu; ham veriyi
+    // göster ki hata ayıklanabilsin.
+    row.firstElementChild.innerHTML=
+      `<div class="badge-err">detay çizilemedi: ${esc(e.message)}</div>`
+      +expandable('ham yanıt',JSON.stringify(d,null,1));
+  }
+  try{lbSet((d.photos||[]).map(p=>p.src))}catch(e){}
+}
+
+/* ---------- popular times (yoğunluk) ---------- */
+const PT_TR=['Paz','Pzt','Sal','Çar','Per','Cum','Cmt'];
+let ptData=null;
+function hourLabel(h){return h===0?'12a':h<12?h+'a':h===12?'12p':(h-12)+'p'}
+function popularTimes(pt){
+  if(!pt||!pt.available||!pt.days||!pt.days.length)return'';
+  ptData=pt;
+  const today=new Date().getDay();
+  const start=pt.days.findIndex(d=>d.day_index===today);
+  return `<div class="sect">yoğunluk${pt.current_percent!=null?` · şu an %${pt.current_percent}`:''}</div>
+    <div class="pt-days">${pt.days.map((d,i)=>
+      `<button class="${i===(start<0?0:start)?'on':''}" onclick="ptShow(${i},this)"
+        title="${esc(d.day)}">${PT_TR[d.day_index]??esc(d.day.slice(0,3))}</button>`).join('')}</div>
+    <div id="ptBody">${ptChart(pt.days[start<0?0:start])}</div>`;
+}
+function ptChart(day){
+  if(!day)return'';
+  const hs=day.hours||[];
+  const max=Math.max(100,...hs.map(h=>h.percent));
+  const bars=hs.map(h=>`<i class="${h.live?'now':''}" style="height:${Math.round(100*h.percent/max)}%"
+    title="${hourLabel(h.hour)} · %${h.percent}${h.live?' (şu an)':''}"></i>`).join('');
+  const peak=day.peak_percent?`<div style="color:var(--muted);font-size:11px;margin-top:3px">
+    zirve ${hourLabel(day.peak_hour)} · %${day.peak_percent}</div>`:
+    '<div style="color:var(--muted);font-size:11px;margin-top:3px">veri yok</div>';
+  return `<div class="pt-chart">${bars}</div>
+    <div class="pt-axis"><span>${hs.length?hourLabel(hs[0].hour):''}</span>
+      <span>${hs.length?hourLabel(hs[hs.length-1].hour):''}</span></div>${peak}`;
+}
+function ptShow(i,btn){
+  if(!ptData)return;
+  btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  $('ptBody').innerHTML=ptChart(ptData.days[i]);
+}
+
+/* paketi olmayan (başarısız) mekan: hata anındaki kanıt */
+/* Yakalama alanları her zaman beklenen tipte gelmiyor: tarayıcı oturumu
+   ölmüşse capture_failure alanın yerine "<error: …>" metnini yazıyor. Bu
+   metin de teşhis bilgisi — tipini kontrol etmeden .map çağırınca panel
+   "yükleniyor…"da kalıyordu, yani hatanın kendisi hatayı gizliyordu. */
+function tabsCell(v){
+  if(Array.isArray(v))
+    return v.length?v.map(t=>esc(t.text||t.aria||'?')+(t.selected==='true'?' ✓':'')).join(' · ')
+                   :'<i style="color:var(--red)">yok</i>';
+  if(typeof v==='string')return `<i class="badge-err">${esc(v.split('\n')[0].slice(0,120))}</i>`;
+  return '<i style="color:var(--red)">yok</i>';
+}
+function renderFailure(d){
+  const maps=d.row.resolved_url||d.row.maps_url;
+  const caps=d.failures.flatMap(f=>f.captures.map(c=>({...c,attempt:f.attempt,log:f.log})));
+  if(!caps.length)return '<span style="color:var(--muted)">hata paketi boş</span>';
+  return `<div class="sect">başarısız — ${esc(d.row.error||'sebep yok')}</div>
+    <div class="row" style="margin-bottom:10px">
+      <a class="failbtn" href="${esc(maps)}" target="_blank" rel="noopener">Maps'te aç ↗</a>
+    </div>
+    ${d.failures.filter(f=>f.log).map(f=>expandable(`deneme ${f.attempt} logu`,f.log)).join('')}
+    ${caps.map(c=>`
+      <div class="capture">
+        <div class="sect">deneme ${c.attempt} · ${esc(c.code||'')} · ${esc((c.at||'').slice(11,19))}</div>
+        <div class="kv"><span>başlık</span><span>${esc(c.title||'-')}</span></div>
+        <div class="kv"><span>sekmeler</span><span>${tabsCell(c.tabs)}</span></div>
+        <div class="kv"><span>yorum kartı</span><span>${
+          c.controls&&typeof c.controls==='object'?(c.controls.review_cards??'-')
+          :typeof c.controls==='string'?`<i class="badge-err">${esc(c.controls.split('\n')[0].slice(0,120))}</i>`
+          :'-'}</span></div>
+        ${c.dom?expandable('kaydedilen DOM',c.dom,c.dom):''}
+        <div class="row" style="margin:6px 0">
+          ${c.screenshot?`<a class="failbtn" href="${esc(c.screenshot)}" target="_blank">tam boy görüntü ↗</a>`:''}
+        </div>
+        ${c.screenshot?`<img class="shot" src="${esc(c.screenshot)}" loading="lazy">`:''}
+      </div>`).join('')}`;
+}
+
+/* Yerinde açılan metin görüntüleyici: içerik ilk açılışta çekilir, çünkü
+   bir DOM dökümü yüz kilobaytlarca olabiliyor ve çoğu satır hiç açılmıyor. */
+function expandable(label,url,rawLink){
+  return `<details class="expand" data-url="${esc(url)}">
+    <summary>${esc(label)}${rawLink?` <a href="${esc(rawLink)}" target="_blank"
+      onclick="event.stopPropagation()">ham ↗</a>`:''}</summary>
+    <pre class="src">yükleniyor…</pre></details>`;
+}
+document.addEventListener('toggle',async e=>{
+  const d=e.target;
+  if(!(d instanceof HTMLDetailsElement)||!d.classList.contains('expand'))return;
+  if(!d.open||d.dataset.loaded)return;
+  d.dataset.loaded='1';
+  const pre=d.querySelector('.src');
+  try{
+    const r=await fetch(d.dataset.url);
+    const t=await r.text();
+    const LIMIT=200000;
+    pre.textContent=t.length>LIMIT
+      ? t.slice(0,LIMIT)+`\n\n… ${((t.length-LIMIT)/1024).toFixed(0)} KB daha (ham bağlantıdan tamamı)`
+      : t;
+  }catch(err){pre.textContent='okunamadı: '+err.message}
+},true);
+
+function starBar(r){
+  if(r==null)return'–';
+  const full='★'.repeat(Math.round(r));
+  return `<span class="stars">${full}</span> ${r}`;
+}
+function renderDetail(d){
+  const inf=d.info||{};
+  const oh=inf.opening_hours||{};
+  const pr=inf.price||{};
+  const ab=inf.about||{};
+  const kv=(k,v)=>v?`<div class="kv"><span>${k}</span><span>${v}</span></div>`:'';
+  const hours=(oh.days||[]).map(x=>`<div class="kv"><span>${esc(x.day||'')}</span><span>${esc(x.hours||'')}</span></div>`).join('');
+  const hist=(pr.histogram||[]).map(h=>`<div class="kv"><span>${esc(h.label||'')}</span><span>%${h.percent??0}</span></div>`).join('');
+  const abouts=(ab.sections||[]).map(s=>`
+    <div class="sect">${esc(s.heading)}</div>
+    <div class="abouts">${(s.items||[]).map(it=>`<i class="${it.enabled?'':'off'}" title="${esc(it.detail||'')}">${esc(it.label)}</i>`).join('')}</div>`).join('');
+  const sorted=(d.reviews||[]).slice().sort((a,b)=>
+    String(b.review_date||'').localeCompare(String(a.review_date||'')));  // yeniden eskiye
+  const reviews=sorted.map(rv=>{
+    const txt=typeof rv.review_text==='object'?Object.values(rv.review_text||{}).join('\n'):(rv.review_text||'');
+    return `<div class="review">
+      <div class="head"><b>${esc(rv.author||'?')}</b>${starBar(rv.rating)}<span class="date">${esc((rv.review_date||'').slice(0,10))} · ${esc(rv.raw_date||'')}</span></div>
+      ${txt?`<p>${esc(txt)}</p>`:''}</div>`;
+  }).join('')||'<span style="color:var(--muted)">yorum yok</span>';
+  const photos=(d.photos||[]).map((p,i)=>
+    `<div class="ph-kind" data-k="${p.kind}"><img loading="lazy" src="${esc(p.src)}" onclick="lbShow(${i})"></div>`).join('')
+    ||'<span style="color:var(--muted)">foto yok</span>';
+  return `<div class="detail-grid">
+    <div>
+      <div class="infobox">
+        <h3>${esc(inf.name||'?')}
+          <a href="${esc((d.row&&(d.row.resolved_url||d.row.maps_url))||'')}" target="_blank"
+             rel="noopener" style="color:var(--accent);font-size:11px">Maps ↗</a></h3>
+        <div class="kv"><span>puan</span><span>${starBar(inf.rating)} (${inf.review_count??'?'} yorum)</span></div>
+        ${kv('kategori',esc(inf.category||''))}
+        ${kv('adres',esc(inf.address||''))}
+        ${kv('telefon',esc(inf.phone||''))}
+        ${inf.website?`<div class="kv"><span>site</span><span><a style="color:var(--accent)" href="${esc(inf.website)}" target="_blank">${esc(inf.website_text||inf.website)}</a></span></div>`:''}
+        ${kv('plus code',esc(inf.plus_code||''))}
+        ${kv('servis',(inf.service_options||[]).map(esc).join(' · '))}
+        ${oh.available?`<div class="sect">çalışma saatleri ${esc(oh.status_text?('· '+oh.status_text):'')}</div>${hours}`:'<div class="sect">saat bilgisi yok</div>'}
+        ${pr.available?`<div class="sect">fiyat · ${esc(pr.per_person_text||'')} (${pr.reported_by??'?'} kişi)</div>${hist}`:''}
+        ${popularTimes(inf.popular_times)}
+        ${abouts}
+      </div>
+    </div>
+    <div>
+      <div class="sect">fotoğraflar (${(d.photos||[]).length})</div>
+      <div class="photos">${photos}</div>
+      <div class="sect">yorumlar (${(d.reviews||[]).length})</div>
+      <div>${reviews}</div>
+    </div>
+  </div>`;
+}
+
+/* ---------- lightbox ---------- */
+let lbList=[],lbIdx=0;
+function lbSet(list){lbList=list}
+function lbShow(i){if(!lbList.length)return;lbIdx=i;lbRender();$('lb').classList.remove('hide')}
+function lbHide(){$('lb').classList.add('hide')}
+function lbStep(d){if(!lbList.length)return;lbIdx=(lbIdx+d+lbList.length)%lbList.length;lbRender()}
+function lbRender(){$('lbImg').src=lbList[lbIdx];$('lbCount').textContent=(lbIdx+1)+' / '+lbList.length}
+document.addEventListener('keydown',e=>{
+  if($('lb').classList.contains('hide'))return;
+  if(e.key==='ArrowRight')lbStep(1);
+  else if(e.key==='ArrowLeft')lbStep(-1);
+  else if(e.key==='Escape')lbHide();
+});
+$('lb').addEventListener('click',e=>{if(e.target.id==='lb')lbHide()});
+
+settings=loadedSettings();applyPool();renderSetSummary();
+loadSetup();setInterval(tick,2000);tick();
+</script>
+</body>
+</html>

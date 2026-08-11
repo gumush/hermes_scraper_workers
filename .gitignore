@@ -1,0 +1,21 @@
+# --- üretilen veri: hiçbiri versiyonlanmaz ---
+outputs/                    # teslim edilen paketler (GB'lar)
+orchestrator/state/         # exec durumu, hata paketleri, ekran görüntüleri
+orchestrator/runs/          # run tanımları (place_id listeleri)
+orchestrator/profiles.json  # yerel profil ayarları
+spot_out/                   # worker'ın çalışma alanı
+logs/
+*.log
+
+# --- çalışma zamanı ---
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+config.yaml                 # gerçek ayar; sample versiyonlanır
+
+# --- işletim sistemi / editör ---
+.DS_Store
+.idea/
+.vscode/
+.claude/
