@@ -205,6 +205,7 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   background:var(--red-soft,#fdecec);border:1px solid #f3c9c9;color:var(--red)}
 .ftag::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
 .ftag.ok{background:var(--green-soft);border-color:#bfe5d8;color:var(--green)}
+.ftag.warn{background:var(--amber-soft,#fff6e6);border-color:#f0dcb4;color:var(--amber)}
 .famhead .ftag,.defhead .ftag{margin-left:8px}
 .defrow{border-top:1px solid var(--line);background:var(--panel-muted)}
 .defhead{display:flex;align-items:center;gap:10px;padding:8px 14px 8px 30px;
@@ -1041,8 +1042,7 @@ async function loadBrowse(){
     const exec=g.uyeler.reduce((a,r)=>a+r.execs.length,0);
     /* Fail sayısı düz metin içinde kayboluyordu; kırmızı rozet listeye
        bakarken hangi run'a inmek gerektiğini tek bakışta söylüyor. */
-    const fam_fail=g.uyeler.reduce((a,r)=>a+r.execs.reduce(
-      (b,e)=>b+(e.counts.failed||0),0),0);
+    const fam_tag=failTag(g.uyeler.flatMap(r=>r.execs));
     return `
     <div class="famcard">
       <div class="famhead" onclick="toggleFam(${gi})">
@@ -1051,7 +1051,7 @@ async function loadBrowse(){
         ${g.running.length?`<span class="live" title="${esc(g.running.join(', '))} çalışıyor">● çalışıyor</span>`:''}
         <span class="meta">${g.uyeler.length} tanım · ${exec} exec ·
           teslim ${g.tree}${mekan?` · liste ${mekan}`:''}${g.bytes?` · ${mb(g.bytes)}`:''}</span>
-        ${fam_fail?`<span class="ftag" title="Bu klasörde toplam ${fam_fail} başarısız mekan">${fam_fail} fail</span>`:''}
+        ${g.uyeler.some(r=>r.execs.length)?fam_tag:''}
         <span class="famacts">
           <button class="sm" title="Zip'e al, kaynağı bırak"
             onclick="event.stopPropagation();exportRun('${esc(g.uyeler[0].file)}')">export</button>
@@ -1069,8 +1069,7 @@ async function loadBrowse(){
               <span class="rfile">${esc(r.file.replace('.hermes-google-places-run.json',''))}</span>
               <span class="meta">${r.places} mekan · ${r.execs.length} exec ·
                 teslim ${r.delivered_places}/${r.places}</span>
-              ${(()=>{const n=r.execs.reduce((a,e)=>a+(e.counts.failed||0),0);
-                return n?`<span class="ftag">${n} fail</span>`:''})()}
+              ${r.execs.length?failTag(r.execs):''}
               <button class="danger sm" style="margin-left:auto"
                 title="Yalnızca bu tanım dosyasını sil — çıktılar kalır"
                 onclick="event.stopPropagation();delDefinition('${esc(r.file)}')">sil</button>
@@ -1084,8 +1083,7 @@ async function loadBrowse(){
                   <span>${esc(e.profile||'')}</span>
                   <span>done ${e.counts.done||0} · paket ${e.packages}${
                     e.bytes?' · '+mb(e.bytes):''}</span>
-                  ${e.counts.failed?`<span class="ftag">${e.counts.failed} fail</span>`
-                    :'<span class="ftag ok">temiz</span>'}
+                  ${failTag([e])}
                   <span>süre ${dur(e.elapsed_s)}</span>
                   <span>hız ${e.per_place_s?dur(e.per_place_s)+'/mekan · '+e.per_hour+' mekan/sa':'–'}</span>
                   <span class="pool" onclick="event.stopPropagation()">
@@ -1169,6 +1167,25 @@ async function quitService(){
     if(q.finished&&!q.error) return;      // exit adımı bağlantıyı koparacak
     if(q.error) clearInterval(t);
   },1000);
+}
+
+/* Teslim edilmeyen her mekan sayılır, yalnızca "failed" olanlar değil. VM'leri
+   elenen bir run işleri hiç dağıtamadan kapandı: iki mekan "pending" kaldı,
+   failed sayacı 0 gördü ve rozet "temiz" dedi — teslim edilmemiş iş dururken. */
+function execEksik(e){
+  const c=e.counts||{};
+  const toplam=Object.values(c).reduce((a,b)=>a+(b||0),0);
+  const done=c.done||0, failed=c.failed||0;
+  return {failed, kalan:Math.max(0,toplam-done-failed), toplam, done};
+}
+function failTag(list){
+  let f=0,k=0;
+  list.forEach(e=>{const x=execEksik(e); f+=x.failed; k+=x.kalan});
+  if(f&&k) return `<span class="ftag">${f} fail</span>`
+    +`<span class="ftag warn">${k} teslim edilmedi</span>`;
+  if(f) return `<span class="ftag">${f} fail</span>`;
+  if(k) return `<span class="ftag warn">${k} teslim edilmedi</span>`;
+  return '<span class="ftag ok">temiz</span>';
 }
 
 /* ---------- arşiv ---------- */

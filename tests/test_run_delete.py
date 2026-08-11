@@ -379,3 +379,35 @@ def test_dead_vms_do_not_reserve_their_zone():
 def test_no_zone_list_means_no_hint():
     assert _zone_pick([], []) is None
     assert _zone_pick(None, []) is None
+
+
+# --- teslim edilmeyen işlerin sayılması ---------------------------------------
+
+def _tally(counts):
+    """The reckoning the run list shows, mirrored from the UI."""
+    total = sum(counts.values())
+    done, failed = counts.get("done", 0), counts.get("failed", 0)
+    return {"failed": failed, "kalan": max(0, total - done - failed)}
+
+
+def test_jobs_left_queued_are_not_a_clean_run():
+    """
+    A run whose VMs were all retired closed with both places still queued:
+    zero failed, zero done, and the list called it clean while two places had
+    never been fetched.
+    """
+    assert _tally({"pending": 2}) == {"failed": 0, "kalan": 2}
+
+
+def test_a_run_that_delivered_everything_is_clean():
+    assert _tally({"done": 550}) == {"failed": 0, "kalan": 0}
+
+
+def test_failed_and_queued_are_counted_apart():
+    """They mean different things: one was tried and lost, one never ran."""
+    assert _tally({"done": 10, "failed": 2, "pending": 3, "scraping": 1}) == {
+        "failed": 2, "kalan": 4}
+
+
+def test_in_flight_work_counts_as_not_delivered_yet():
+    assert _tally({"done": 5, "transferring": 2}) == {"failed": 0, "kalan": 2}
