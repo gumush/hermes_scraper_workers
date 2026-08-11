@@ -214,3 +214,17 @@ def test_deleting_one_definition_can_leave_the_shared_output_alone(sandbox):
     assert not (sandbox["runs"] / RUN_FILE).exists()
     assert (sandbox["outputs"] / "demo-run" / "A" / "info.json").is_file()
     assert (sandbox["state"] / "demo").is_dir()
+
+
+def test_failure_bundles_are_ordered_by_attempt_number(sandbox):
+    """
+    Ten attempts sort as strings into 1, 10, 2, 3 … so the attempt that ended
+    the job landed in the middle of the list instead of at the top.
+    """
+    d = sandbox["state"] / "demo" / "exec-20260101-000000" / "failures"
+    d.mkdir(parents=True)
+    for n in (1, 2, 9, 10, 11):
+        (d / f"A-{n}.tar.gz").write_bytes(b"x")
+    got = [b["attempt"] for b in
+           coordinator._failure_bundles(d.parent, "A")]
+    assert got == [11, 10, 9, 2, 1]

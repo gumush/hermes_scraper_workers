@@ -1765,7 +1765,7 @@ def _failure_bundles(exec_dir: Path, place_id: str) -> List[Dict[str, Any]]:
     if not d.is_dir():
         return []
     out = []
-    for f in sorted(d.glob(f"{safe_name(place_id)}-*.tar.gz"), reverse=True):
+    for f in d.glob(f"{safe_name(place_id)}-*.tar.gz"):
         # name is "<place>-<attempt>.tar.gz"; Path.stem only strips ".gz"
         try:
             attempt = int(f.name.rsplit("-", 1)[1].split(".")[0])
@@ -1773,6 +1773,10 @@ def _failure_bundles(exec_dir: Path, place_id: str) -> List[Dict[str, Any]]:
             attempt = 0
         out.append({"attempt": attempt, "file": f.name,
                     "bytes": f.stat().st_size})
+    # Sorted on the attempt NUMBER, not the file name: with ten attempts the
+    # name order puts "-10" between "-1" and "-2", so the attempt that
+    # actually ended the job was buried in the middle of the list.
+    out.sort(key=lambda x: x["attempt"], reverse=True)
     return out
 
 
