@@ -122,7 +122,8 @@ def test_delete_survives_a_run_that_never_ran(sandbox):
         {"payload": {"run": {"name": "bos-run"}, "place_ids": []}}))
     assert coordinator.delete_run("bos.hermes-google-places-run.json",
                                   keep_json=False) == {
-        "execs": 0, "outputs_bytes": 0, "state_bytes": 0, "json_removed": True}
+        "execs": 0, "outputs_bytes": 0, "state_bytes": 0,
+        "json_removed": True, "outputs_kept": False}
 
 
 def test_start_request_carries_the_attempt_limit(sandbox):
@@ -201,3 +202,15 @@ def test_archive_needs_an_absolute_directory(sandbox):
 def test_listing_an_absent_archive_dir_is_not_an_error(tmp_path):
     r = coordinator.list_archives(str(tmp_path / "yok"))
     assert r["exists"] is False and r["items"] == []
+
+
+def test_deleting_one_definition_can_leave_the_shared_output_alone(sandbox):
+    """
+    Definitions share an output tree on purpose; removing one of them must
+    not take the data the others are still listed against.
+    """
+    r = coordinator.delete_run(RUN_FILE, keep_json=False, keep_outputs=True)
+    assert r["outputs_kept"] is True
+    assert not (sandbox["runs"] / RUN_FILE).exists()
+    assert (sandbox["outputs"] / "demo-run" / "A" / "info.json").is_file()
+    assert (sandbox["state"] / "demo").is_dir()

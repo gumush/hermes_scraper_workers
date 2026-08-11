@@ -192,6 +192,18 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   padding:12px;margin-bottom:12px}
 
 /* --- run tarayıcısı --- */
+.famcard{background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  margin-bottom:10px;overflow:hidden}
+.famhead{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer}
+.famhead:hover{background:var(--panel-muted)}
+.famhead>b{font-size:13px;font-weight:700;letter-spacing:-.02em}
+.famhead .caret{width:12px;color:var(--muted)}
+.famacts{margin-left:auto;display:flex;gap:6px}
+.defrow{border-top:1px solid var(--line);background:var(--panel-muted)}
+.defhead{display:flex;align-items:center;gap:10px;padding:8px 14px 8px 30px;
+  cursor:pointer;font-size:11px}
+.defhead:hover{background:var(--panel)}
+.defhead .caret{width:12px;color:var(--muted)}
 .runcard{background:var(--panel);border:1px solid var(--line);border-radius:9px;margin-bottom:8px;overflow:hidden}
 .runhead{padding:12px 14px;cursor:pointer;display:flex;gap:14px;align-items:baseline}
 .runhead:hover{background:var(--panel-muted)}
@@ -994,49 +1006,112 @@ async function tick(){
 let curExec=null; // {run_stem, exec_id}
 async function loadBrowse(){
   const runs=await j('/api/browse/runs');
-  $('runlist').innerHTML=runs.map((r,i)=>`
-    <div class="runcard">
-      <div class="runhead" onclick="toggleRun(${i})">
-        <b>${esc(r.name)}</b>
-        <span class="rfile" title="run tanım dosyası">${
-          esc(r.file.replace('.hermes-google-places-run.json',''))}</span>${(r.running||[]).length?
-          `<span class="live" title="${esc(r.running.join(', '))} çalışıyor">● çalışıyor</span>`:''}
-        <span class="meta">${r.places} mekan · ${r.execs.length} exec${
-          r.bytes?` · teslim ${r.delivered_places}/${r.places} · ${mb(r.bytes)}`:''}</span>
-        <button class="sm" title="Zip'e alıp arşiv klasörüne taşı"
-          onclick="event.stopPropagation();archiveRun('${esc(r.file)}')">arşivle</button>
-        <button class="danger sm" title="Bu run'ın verilerini sil"
-          onclick="event.stopPropagation();askDelete('${esc(r.file)}')">sil</button>
+  /* İki katman: üstte ÇIKTI KLASÖRÜ (run adı), altında o klasöre yazan tanım
+     dosyaları. Veri birimi klasör olduğu için arşiv/export/sil orada; tek bir
+     tanımı silmek klasörü paylaşan ötekileri yarım bırakırdı. Tanım satırında
+     yalnızca kendi kaydını kaldıran sil var. */
+  const aile=new Map();
+  runs.forEach(r=>{
+    if(!aile.has(r.name)) aile.set(r.name,{name:r.name,uyeler:[],
+      bytes:r.bytes,tree:r.tree_places||0,running:[]});
+    const g=aile.get(r.name);
+    g.uyeler.push(r);
+    g.bytes=Math.max(g.bytes,r.bytes);
+    g.tree=Math.max(g.tree,r.tree_places||0);
+    g.running.push(...(r.running||[]));
+  });
+  $('runlist').innerHTML=[...aile.values()].map((g,gi)=>{
+    const mekan=g.uyeler.reduce((a,r)=>a+r.places,0);
+    const exec=g.uyeler.reduce((a,r)=>a+r.execs.length,0);
+    return `
+    <div class="famcard">
+      <div class="famhead" onclick="toggleFam(${gi})">
+        <span class="caret" id="fc${gi}">▾</span>
+        <b>${esc(g.name)}</b>
+        ${g.running.length?`<span class="live" title="${esc(g.running.join(', '))} çalışıyor">● çalışıyor</span>`:''}
+        <span class="meta">${g.uyeler.length} tanım · ${exec} exec ·
+          teslim ${g.tree}${mekan?` · liste ${mekan}`:''}${g.bytes?` · ${mb(g.bytes)}`:''}</span>
+        <span class="famacts">
+          <button class="sm" title="Zip'e al, kaynağı bırak"
+            onclick="event.stopPropagation();exportRun('${esc(g.uyeler[0].file)}')">export</button>
+          <button class="sm" title="Zip'e al ve buradan kaldır"
+            onclick="event.stopPropagation();archiveRun('${esc(g.uyeler[0].file)}')">arşivle</button>
+          <button class="danger sm" title="Bu klasörün tüm verisini sil"
+            onclick="event.stopPropagation();askDelete('${esc(g.uyeler[0].file)}')">sil</button>
+        </span>
       </div>
-      <div id="runbody${i}" class="hide">
-        ${r.execs.length?r.execs.map(e=>`
-          <div class="execrow" id="ex_${esc(r.run_stem)}_${esc(e.exec_id)}"
-               onclick="openExec('${esc(r.run_stem)}','${esc(e.exec_id)}',this)">
-            <span>${esc(e.exec_id)}</span>
-            <span>${esc(e.state||'?')}</span>
-            <span>${esc(e.profile||'')}</span>
-            <span>done ${e.counts.done||0} · fail ${e.counts.failed||0} · paket ${e.packages}${
-              e.bytes?' · '+mb(e.bytes):''}</span>
-            <span>süre ${dur(e.elapsed_s)}</span>
-            <span>hız ${e.per_place_s?dur(e.per_place_s)+'/mekan · '+e.per_hour+' mekan/sa':'–'}</span>
-            <span class="pool" onclick="event.stopPropagation()">
-              <label>VM <input type="number" min="1" max="32" value="${settings.vms}"
-                id="rv_${esc(e.exec_id)}"></label>
-              <label>slot <input type="number" min="1" max="3" value="${settings.slots}"
-                id="rs_${esc(e.exec_id)}"></label>
-              <label title="Eksikler zaten bir kez düşmüş mekanlar — burada cömert olmak mantıklı"
-                >deneme <input type="number" min="1" max="10"
-                value="${Math.min(10,Math.max(settings.attempts,RETRY_TRIES))}"
-                id="rt_${esc(e.exec_id)}"></label>
-            </span>
-            <button onclick="event.stopPropagation();retryFailed('${esc(r.run_stem)}','${esc(e.exec_id)}')"
-              title="Teslim edilmemiş mekanları yeni bir run'da tekrar dene">↻ eksikler</button>
-          </div>`).join(''):'<div class="execrow">henüz exec yok</div>'}
-        <div class="placewrap hide" id="places_${esc(r.run_stem)}"></div>
+      <div id="fam${gi}">
+        ${g.uyeler.map((r,i)=>`
+          <div class="defrow">
+            <div class="defhead" onclick="toggleRun('${gi}_${i}')">
+              <span class="caret" id="dc${gi}_${i}">▸</span>
+              <span class="rfile">${esc(r.file.replace('.hermes-google-places-run.json',''))}</span>
+              <span class="meta">${r.places} mekan · ${r.execs.length} exec ·
+                teslim ${r.delivered_places}/${r.places}</span>
+              <button class="danger sm" style="margin-left:auto"
+                title="Yalnızca bu tanım dosyasını sil — çıktılar kalır"
+                onclick="event.stopPropagation();delDefinition('${esc(r.file)}')">sil</button>
+            </div>
+            <div id="runbody${gi}_${i}" class="hide">
+              ${r.execs.length?r.execs.map(e=>`
+                <div class="execrow" id="ex_${esc(r.run_stem)}_${esc(e.exec_id)}"
+                     onclick="openExec('${esc(r.run_stem)}','${esc(e.exec_id)}',this)">
+                  <span>${esc(e.exec_id)}</span>
+                  <span>${esc(e.state||'?')}</span>
+                  <span>${esc(e.profile||'')}</span>
+                  <span>done ${e.counts.done||0} · fail ${e.counts.failed||0} · paket ${e.packages}${
+                    e.bytes?' · '+mb(e.bytes):''}</span>
+                  <span>süre ${dur(e.elapsed_s)}</span>
+                  <span>hız ${e.per_place_s?dur(e.per_place_s)+'/mekan · '+e.per_hour+' mekan/sa':'–'}</span>
+                  <span class="pool" onclick="event.stopPropagation()">
+                    <label>VM <input type="number" min="1" max="32" value="${settings.vms}"
+                      id="rv_${esc(e.exec_id)}"></label>
+                    <label>slot <input type="number" min="1" max="3" value="${settings.slots}"
+                      id="rs_${esc(e.exec_id)}"></label>
+                    <label>deneme <input type="number" min="1" max="10"
+                      value="${Math.min(10,Math.max(settings.attempts,RETRY_TRIES))}"
+                      id="rt_${esc(e.exec_id)}"></label>
+                  </span>
+                  <button onclick="event.stopPropagation();retryFailed('${esc(r.run_stem)}','${esc(e.exec_id)}')"
+                    title="Teslim edilmemiş mekanları yeni bir run'da tekrar dene">↻ eksikler</button>
+                </div>`).join(''):'<div class="execrow">henüz exec yok</div>'}
+              <div class="placewrap hide" id="places_${esc(r.run_stem)}"></div>
+            </div>
+          </div>`).join('')}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
-function toggleRun(i){$('runbody'+i).classList.toggle('hide')}
+function toggleFam(i){
+  const b=$('fam'+i); b.classList.toggle('hide');
+  $('fc'+i).textContent=b.classList.contains('hide')?'▸':'▾';
+}
+async function exportRun(file){
+  if(!settings.arcdir){ alert('Önce Ayarlar\'dan arşiv klasörünü belirle.'); showTab('set'); return }
+  let f;
+  try{ f=await j(`/api/runs/${encodeURIComponent(file)}/archive`) }
+  catch(e){ alert('okunamadı: '+e.message); return }
+  if(!confirm(`"${f.run_name}" zip'e alınacak, hiçbir şey silinmeyecek.\n\n`
+    +`${f.definitions.length} tanım · ${f.execs} exec · ${f.places} mekan · `
+    +`${mb(f.outputs_bytes+f.state_bytes)}\n\nDevam?`))return;
+  try{
+    const r=await j(`/api/runs/${encodeURIComponent(file)}/export`
+      +`?archive_dir=${encodeURIComponent(settings.arcdir)}`,{method:'POST'});
+    alert(`Dışa aktarıldı: ${r.file} (${r.files} dosya, ${mb(r.bytes)})\nKaynak yerinde duruyor.`);
+  }catch(e){ alert('aktarılamadı: '+e.message) }
+}
+async function delDefinition(file){
+  if(!confirm(`Yalnızca "${file}" tanım dosyası silinecek.\n`
+    +`Çıktılar ve exec verisi yerinde kalır — aynı klasöre yazan öteki tanımlar `
+    +`onları kullanmaya devam eder.\n\nDevam?`))return;
+  try{ await j(`/api/runs/${encodeURIComponent(file)}?keep_outputs=true`,{method:'DELETE'}) }
+  catch(e){ alert('silinemedi: '+e.message); return }
+  loadBrowse();
+}
+function toggleRun(i){
+  const b=$('runbody'+i); b.classList.toggle('hide');
+  $('dc'+i).textContent=b.classList.contains('hide')?'▸':'▾';
+}
 
 /* ---------- servisi kapat ---------- */
 /* Adımlar tek tek gösteriliyor çünkü kapanış sessiz olduğunda kimse VM'lerin

@@ -1076,7 +1076,8 @@ def run_footprint(run_file: str):
 
 
 @app.delete("/api/runs/{run_file}")
-def delete_run(run_file: str, keep_json: bool = True):
+def delete_run(run_file: str, keep_json: bool = True,
+               keep_outputs: bool = False):
     """
     Erase a run's data. keep_json leaves the definition (the place list) so
     the run can be started again from zero; keep_json=false takes the
@@ -1085,6 +1086,10 @@ def delete_run(run_file: str, keep_json: bool = True):
     The default keeps it: a missing or mistyped flag should cost the least,
     and the definition is the one piece here that a caller cannot rebuild
     from what is left on disk.
+
+    keep_outputs is the opposite errand: drop just this definition and leave
+    the delivered data alone. Several definitions can share an output tree,
+    so removing one of them must not take the tree the others still use.
 
     Refuses while the run is executing: the background thread writes into
     the very directories this removes, and a half-deleted exec is worse
@@ -1102,9 +1107,11 @@ def delete_run(run_file: str, keep_json: bool = True):
                "outputs_bytes": _dir_bytes(out_dir),
                "state_bytes": _dir_bytes(state_dir),
                "json_removed": not keep_json}
-    for d in (state_dir, out_dir):
-        if d.is_dir():
-            shutil.rmtree(d)
+    if not keep_outputs:
+        for d in (state_dir, out_dir):
+            if d.is_dir():
+                shutil.rmtree(d)
+    removed["outputs_kept"] = keep_outputs
     if not keep_json:
         path.unlink()
     log.info("run silindi: %s (json %s, %d exec, %s)", stem,
@@ -1183,6 +1190,17 @@ def archive_preview(run_file: str):
                             and _current.state in LIVE_STATES)}
 
 
+@app.post("/api/runs/{run_file}/export")
+def export_run(run_file: str, archive_dir: str, stamp: str = ""):
+    """
+    Same zip as the archive, but nothing is removed.
+
+    Taking a copy and clearing space are different intentions and one of
+    them is irreversible; they get different buttons.
+    """
+    return _write_archive(run_file, archive_dir, stamp, remove=False)
+
+
 @app.post("/api/runs/{run_file}/archive")
 def archive_run(run_file: str, archive_dir: str, stamp: str = ""):
     """
@@ -1192,6 +1210,11 @@ def archive_run(run_file: str, archive_dir: str, stamp: str = ""):
     half-written archive that the source has already been deleted for is the
     one failure mode worth engineering against.
     """
+    return _write_archive(run_file, archive_dir, stamp, remove=True)
+
+
+def _write_archive(run_file: str, archive_dir: str, stamp: str,
+                   remove: bool) -> Dict[str, Any]:
     fam = _run_family(run_file)
     if _current and _current.run_stem in fam["stems"] and _current.state in LIVE_STATES:
         raise HTTPException(409, f"bu run çalışıyor ({_current.id}); önce durdur")
@@ -1234,19 +1257,21 @@ def archive_run(run_file: str, archive_dir: str, stamp: str = ""):
         tmp.unlink(missing_ok=True)
         raise HTTPException(500, f"arşiv yazılamadı: {e}") from e
 
-    for st in fam["stems"]:
-        d = STATE_DIR / st
-        if d.is_dir():
-            shutil.rmtree(d)
-    if fam["out_dir"].is_dir():
-        shutil.rmtree(fam["out_dir"])
-    for f in fam["files"]:
-        f.unlink()
+    if remove:
+        for st in fam["stems"]:
+            d = STATE_DIR / st
+            if d.is_dir():
+                shutil.rmtree(d)
+        if fam["out_dir"].is_dir():
+            shutil.rmtree(fam["out_dir"])
+        for f in fam["files"]:
+            f.unlink()
 
     size = final.stat().st_size
-    log.info("arşivlendi: %s (%d dosya, %s)", final.name, written, _mb(size))
+    log.info("%s: %s (%d dosya, %s)", "arşivlendi" if remove else "dışa aktarıldı",
+             final.name, written, _mb(size))
     return {"file": final.name, "path": str(final), "bytes": size,
-            "files": written, **manifest}
+            "files": written, "removed": remove, **manifest}
 
 
 @app.get("/api/profiles")
@@ -1720,6 +1745,11 @@ def browse_runs():
                         if (out_dir / safe_name(pid) / "info.json").is_file()
                     ) if out_dir.is_dir() else 0,
                     "bytes": delivered_bytes,
+                    # The output tree is shared by every definition with this
+                    # run name, so the group header can show what is actually
+                    # on disk instead of one member's slice of it.
+                    "tree_places": sum(1 for x in out_dir.iterdir()
+                                       if x.is_dir()) if out_dir.is_dir() else 0,
                     "execs": execs})
     # Newest activity first. Exec ids are timestamps, so the newest exec's id
     # sorts as the run's recency; a run that never ran goes last rather than
