@@ -1324,13 +1324,20 @@ def browse_runs():
         delivered_bytes = sum(f.stat().st_size
                               for f in out_dir.rglob("*") if f.is_file()) \
             if out_dir.is_dir() else 0
+        # Delivery is counted against THIS run's list, not the whole outputs
+        # tree. Several run definitions can share a run name on purpose so
+        # their output lands together; counting the tree made a 9-place
+        # top-up run report "delivered 384/9".
+        want = data["payload"]["place_ids"]
         live = [e["exec_id"] for e in execs
                 if e["state"] in LIVE_STATES]
         out.append({"file": p.name, "run_stem": stem, "running": live,
                     "name": data["payload"]["run"]["name"],
                     "places": len(data["payload"]["place_ids"]),
-                    "delivered_places": sum(1 for _ in out_dir.iterdir()
-                                            if _.is_dir()) if out_dir.is_dir() else 0,
+                    "delivered_places": sum(
+                        1 for pid in want
+                        if (out_dir / safe_name(pid) / "info.json").is_file()
+                    ) if out_dir.is_dir() else 0,
                     "bytes": delivered_bytes,
                     "execs": execs})
     return out
