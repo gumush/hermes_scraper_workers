@@ -263,3 +263,44 @@ def test_start_request_defaults_to_closing():
     req = coordinator.StartRequest(
         run_file=RUN_FILE, profile="p", provider="local", vm_count=1, slots=1)
     assert req.keep_vms_after_run is False
+
+
+def test_shutdown_waits_for_packages_already_coming_down():
+    """
+    A run reaches "completed" when nothing is still being scraped, but
+    collection runs on its own pool — two packages landed after that point in
+    a real run. Deleting the VMs then would have thrown them away.
+    """
+    e = object.__new__(coordinator.Execution)
+    e.jobs = {"a": {"state": "transferring"}, "b": {"state": "done"}}
+    e.drain = None
+    e.persist = lambda: None
+    e.log_event = lambda *a, **k: None
+
+    calls = {"n": 0}
+
+    def land_after_two_polls():
+        calls["n"] += 1
+        if calls["n"] >= 2:
+            e.jobs["a"]["state"] = "done"
+
+    import time as _t
+    real_sleep = _t.sleep
+    _t.sleep = lambda s: land_after_two_polls()
+    try:
+        assert e._await_transfers(timeout=30) == 0
+    finally:
+        _t.sleep = real_sleep
+    assert calls["n"] >= 2, "beklemeden geçmiş"
+
+
+def test_shutdown_gives_up_waiting_rather_than_hanging():
+    """A transfer that never finishes must not keep the fleet billing."""
+    e = object.__new__(coordinator.Execution)
+    e.jobs = {"a": {"state": "transferring"}}
+    e.drain = None
+    e.persist = lambda: None
+    seen = {}
+    e.log_event = lambda ev, **k: seen.update({ev: k})
+    assert e._await_transfers(timeout=0.01) == 1
+    assert seen.get("transfer_wait_timeout", {}).get("remaining") == 1

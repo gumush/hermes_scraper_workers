@@ -938,11 +938,13 @@ async function tick(){
     ? `<div class="drain">kapanıyor · ${dr.vms} VM'den paket çekiliyor ·
         <b>${dr.pulled}</b> alındı${dr.failed?` · ${dr.failed} alınamadı`:''} ·
         en fazla ${Math.max(0,Math.round(dr.deadline-Date.now()/1000))} sn, sonra VM'ler silinir</div>`
+    : (dr&&dr.state&&dr.state.includes('iniyor')
+        ? `<div class="drain">${esc(dr.state)} — bitmeden VM'ler kapatılmayacak</div>`
     : (s.state==='closing'
         ? '<div class="drain">kapanıyor · VM\'ler siliniyor…</div>'
         : (dr&&s.state==='closed'
             ? `<div class="drain done">kapatıldı · drain'de ${dr.pulled} paket kurtarıldı${
-                dr.failed?`, ${dr.failed} alınamadı`:''}</div>` : ''));
+                dr.failed?`, ${dr.failed} alınamadı`:''}</div>` : '')));
   /* Kutular anlamlı öbekler hâlinde: önce işin nerede olduğu, sonra ne hızda
      gittiği, sonra filo, en sonda bu run'ın hangi ayarlarla başladığı. Ayar
      öbeği sonda çünkü run boyunca değişmiyor — bakılan şey ilk üçü. */

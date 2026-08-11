@@ -435,6 +435,11 @@ class Execution:
         finally:
             self.persist()
             if self.shutdown_requested or not self.keep_vms_after_run:
+                # Let what is already coming down arrive before the machines
+                # holding it are deleted.
+                left = self._await_transfers()
+                if left:
+                    log.warning("%d transfer still in flight at shutdown", left)
                 self._shutdown_all()
             else:
                 self.log_event("vms_kept", count=sum(
@@ -485,6 +490,32 @@ class Execution:
         url = self.provider.endpoint(vm) + path
         return requests.request(method, url, timeout=30,
                                 headers={"X-API-Key": self.api_key}, **kwargs)
+
+    def _await_transfers(self, timeout: float = 300.0) -> int:
+        """
+        Wait for packages already being pulled to land.
+
+        The drive loop finishes when no VM is still scraping, but collection
+        runs on its own pool — a run can reach "completed" with packages
+        halfway down the wire. Deleting the VMs at that moment throws away
+        work that was seconds from arriving, so shutdown waits here first.
+
+        Returns how many were still in flight when the wait gave up.
+        """
+        deadline = time.time() + timeout
+        while True:
+            left = sum(1 for j in self.jobs.values()
+                       if j["state"] == "transferring")
+            if not left:
+                return 0
+            if time.time() >= deadline:
+                self.log_event("transfer_wait_timeout", remaining=left)
+                return left
+            self.drain = {"vms": 0, "pulled": 0, "failed": 0,
+                          "deadline": deadline,
+                          "state": f"{left} paket iniyor"}
+            self.persist()
+            time.sleep(1.0)
 
     def _drive(self) -> None:
         while not self.shutdown_requested:
