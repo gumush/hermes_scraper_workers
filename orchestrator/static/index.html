@@ -138,6 +138,8 @@ label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-siz
   text-transform:uppercase;letter-spacing:.05em;margin-right:5px}
 /* Sayıların ne işe yaradığı ayarların yanında durmalı; açıklama için başka bir
    belgeye bakmak zorunda kalmak, yanlış değerin sebebi oluyor. */
+input.clamped{border-color:var(--amber);background:var(--amber-soft);
+  transition:background .3s,border-color .3s}
 .info{display:inline-flex;align-items:center;justify-content:center;
   width:14px;height:14px;border-radius:50%;border:1px solid var(--line);
   background:var(--panel-muted);color:var(--muted);font-size:9px;font-weight:800;
@@ -161,6 +163,9 @@ label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-siz
 .chead .cnt{margin-left:auto;font-size:10px;font-weight:700;color:var(--subtle);
   background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:1px 7px}
 .chead .cnt.on{color:var(--accent);border-color:var(--accent-soft)}
+.rng{font-size:9px;font-weight:700;color:var(--subtle);
+  background:var(--panel-muted);border:1px solid var(--line);
+  border-radius:4px;padding:0 4px;margin-left:3px}
 .zonegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
   gap:8px;padding:10px 12px}
 .zonecard input:disabled+div{opacity:.45}
@@ -435,7 +440,7 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
       15 mekanın 7'si sonraki denemede tam teslim edildi. Bedeli, gerçekten
       alınamayan mekanın run'ı daha uzun meşgul etmesi.</p>
     <div class="row">
-      <label>deneme (VM) sayısı
+      <label>deneme (VM) sayısı <span class="rng">1–10</span>
         <input id="attempts" type="number" min="1" max="10" value="3"></label>
     </div>
   </div>
@@ -489,16 +494,16 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
       açılıp açılmayacağını ve kapanışta ne kadar beklendiğini belirler. Değerler
       run başlatılırken o run'a yazılır; çalışan run'ı etkilemez.</p>
     <div class="row">
-      <label>yerine açma bütçesi
-        <input id="repl" type="number" min="0" max="60" value="24" onchange="saveFleet()">
-        <span class="info" tabindex="0" data-tip="Kaybolan ya da elenen VM yerine run boyunca en fazla kaç yeni VM açılsın. Tükendiğinde sistem yeni VM açmayı bırakır ve kalan VM sayısıyla devam eder — bir run 13 isterken 7 VM ile kaldı, sebebi buydu. 0 = hiç yerine açma.">i</span></label>
-      <label>VM eleme eşiği
+      <label>yerine açma bütçesi <span class="rng">0–250</span>
+        <input id="repl" type="number" min="0" max="250" value="24" onchange="saveFleet()">
+        <span class="info" tabindex="0" data-tip="Kaybolan ya da elenen VM yerine run boyunca en fazla kaç yeni VM açılsın. 0–250 arası. Tükendiğinde sistem yeni VM açmayı bırakır ve kalan VM sayısıyla devam eder — bir run 13 isterken 7 VM ile kaldı, sebebi buydu. 0 = hiç yerine açma.">i</span></label>
+      <label>VM eleme eşiği <span class="rng">1–10</span>
         <input id="vmfail" type="number" min="1" max="10" value="3" onchange="saveFleet()">
-        <span class="info" tabindex="0" data-tip="Bir VM üst üste kaç iş düşürünce elenip yerine yenisi açılsın. Amaç farklı bir çıkış IP'si almak. Sayfa kaynaklı hatalar (yorum durumu okunamadı gibi) bu sayaca yazılmaz — VM'in suçu değil.">i</span></label>
+        <span class="info" tabindex="0" data-tip="1–10 arası. Bir VM üst üste kaç iş düşürünce elenip yerine yenisi açılsın. Amaç farklı bir çıkış IP'si almak. Sayfa kaynaklı hatalar (yorum durumu okunamadı gibi) bu sayaca yazılmaz — VM'in suçu değil.">i</span></label>
       <label title="Run bitince filoyu açık bırak">
         <input id="keepvms" type="checkbox" onchange="saveFleet()"> bitince VM'leri açık bırak
         <span class="info" tabindex="0" data-tip="Varsayılan: run bitince VM'ler otomatik kapanır — önce paketler çekilir, sonra makineler silinir. Açık bırakmak yalnızca hemen ardından aynı filoyla iş vereceksen mantıklı; aksi hâlde fatura işlemeye devam eder ve biten bir run'ın VM'leri yeni run başlatılınca sahipsiz kalır — üç makine bir saat böyle çalıştı ve sonraki run'ın kotasını yedi.">i</span></label>
-      <label>drain süresi (sn)
+      <label>drain süresi (sn) <span class="rng">10–600</span>
         <input id="drain" type="number" min="10" max="600" value="90" onchange="saveFleet()">
         <span class="info" tabindex="0" data-tip="Kapatırken VM'lerde hazır bekleyen paketleri çekmek için tanınan süre. Bu sürede gelmeyen paket kaybolur, o mekan tekrar kazınır. Uzatmak veri kurtarır ama VM'ler o kadar süre daha faturalanır.">i</span></label>
     </div>
@@ -600,15 +605,30 @@ function saveSettings(){
   settings.machine=$('machine').value;
   settings.spot=$('spot').checked;
   settings.capture=$('capture').checked;
-  settings.attempts=Math.min(10,Math.max(1,+$('attempts').value||3));
+  settings.attempts=clamp('attempts',+$('attempts').value,1,10,3);
   if($('tries')) $('tries').value=settings.attempts;
   settings.zones=[...document.querySelectorAll('#zonepicker input.z:checked')].map(i=>i.value);
   persist(); renderSetSummary(); renderZones();
 }
+/* Girilen değer sınırın dışındaysa sessizce kırpmak, ayarın kaydedilmediği
+   izlenimi veriyor: 99 yazılıp dönüldüğünde kutuda 60 duruyordu ve tavanın
+   ne olduğu hiçbir yerde yazmıyordu. Artık kırpıldığı söyleniyor. */
+function clamp(id,val,lo,hi,def){
+  if(!Number.isFinite(val)) return def;
+  const out=Math.min(hi,Math.max(lo,val));
+  const el=$(id);
+  if(el&&out!==val){
+    el.value=out;
+    el.classList.add('clamped');
+    el.title=`${val} sınır dışı — ${lo}–${hi} aralığına çekildi`;
+    setTimeout(()=>el.classList.remove('clamped'),1600);
+  }else if(el){ el.classList.remove('clamped'); el.title='' }
+  return out;
+}
 function saveFleet(){
-  settings.repl=Math.min(60,Math.max(0,+$('repl').value||24));
-  settings.vmfail=Math.min(10,Math.max(1,+$('vmfail').value||3));
-  settings.drain=Math.min(600,Math.max(10,+$('drain').value||90));
+  settings.repl=clamp('repl',+$('repl').value,0,250,24);
+  settings.vmfail=clamp('vmfail',+$('vmfail').value,1,10,3);
+  settings.drain=clamp('drain',+$('drain').value,10,600,90);
   settings.keepvms=$('keepvms').checked;
   persist(); renderSetSummary();
 }
@@ -618,9 +638,9 @@ function applyFleet(){
   $('drain').value=settings.drain; $('keepvms').checked=!!settings.keepvms;
 }
 function savePool(){
-  settings.vms=Math.min(32,Math.max(1,+$('vms').value||2));
-  settings.slots=Math.min(3,Math.max(1,+$('slots').value||1));
-  if($('tries')) settings.attempts=Math.min(10,Math.max(1,+$('tries').value||3));
+  settings.vms=clamp('vms',+$('vms').value,1,32,2);
+  settings.slots=clamp('slots',+$('slots').value,1,3,1);
+  if($('tries')) settings.attempts=clamp('tries',+$('tries').value,1,10,3);
   persist(); renderSetSummary();
 }
 function applyPool(){
