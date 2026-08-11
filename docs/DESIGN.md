@@ -1,10 +1,9 @@
 # Tasarım sözleşmesi — Hermes Orchestrator arayüzü
 
-Bu proje **Hermes Operation Center tasarım sistemini** kullanır. Sistemin kendisi bu depoda
-değil, çalışma alanının ortak klasöründedir:
+Bu proje **Hermes Operation Center tasarım sistemini** kullanır. Sistemin kendisi bu depoda, `docs/design_system/` altındadır:
 
-- [`../../design_system/README.md`](../../design_system/README.md) — ilkeler ve kapsam
-- [`../../design_system/tokens.md`](../../design_system/tokens.md) — renk, tipografi, boşluk,
+- [`design_system/README.md`](design_system/README.md) — ilkeler ve kapsam
+- [`design_system/tokens.md`](design_system/tokens.md) — renk, tipografi, boşluk,
   radius, kontrol ölçüleri
 
 Son otorite çalışan arayüzdür (`localhost:8818` · Operation Center). Belge ile görünen

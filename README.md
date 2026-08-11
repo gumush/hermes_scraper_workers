@@ -115,7 +115,8 @@ eklenmez. Aynı `run.name` değerini taşıyan farklı run tanımları bilerek a
 | [docs/OPERATIONS.md](docs/OPERATIONS.md) | run başlatma, izleme, duraklatma, kapatma, eksikleri toplama |
 | [docs/EDGE_CASES.md](docs/EDGE_CASES.md) | normal akışı bozan sayfa tipleri ve nasıl çözüldükleri |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | sık karşılaşılan hatalar ve teşhis yolları |
-| [docs/DESIGN.md](docs/DESIGN.md) | arayüz tasarım sistemi |
+| [docs/DESIGN.md](docs/DESIGN.md) | arayüz tasarım sözleşmesi |
+| [docs/design_system/](docs/design_system/) | tasarım sisteminin kendisi: ilkeler ve tokenlar |
 
 ---
 
