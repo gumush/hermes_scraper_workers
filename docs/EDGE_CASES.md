@@ -137,3 +137,89 @@ Selenium'da yok.
 **Açık kalan:** Kimlik referansının kendisi yanlış sayfadan alınırsa kontrol
 yanlış şeyi doğrular (bkz. vaka 1, üçüncü deneme). Referans alınmadan önce de
 bir doğrulama gerekiyor.
+
+---
+
+## 4. Otel içi mekanlar — "Resort" içindeki "sort"
+
+**Örnekler** Buddha-Bar Beach (Mykonos) `ChIJtaWldY2-ohQRq9ErCoLNLIY` ·
+Delos Lounges & Bar `ChIJeWVaMBW_ohQRiC_xLa5-SbY` · Odile Konak
+
+### Belirti
+
+İki mekan günlerce alınamadı. 10 Avrupa bölgesinde 10 denemenin 10'unda,
+sonra normal (spot olmayan) makinelerde, sonra yerelde — hep aynı.
+
+### Kanıt
+
+Burada **iki ayrı sorun** üst üste binmişti ve tek tek ayrıştırılana kadar
+ikisi de yanlış teşhis edildi. Ayrıştırma deney tablosuyla yapıldı:
+
+| deney | headless | ısınma turu | sort düzeltmesi | sonuç |
+|---|---|---|---|---|
+| A | hayır | ✗ | ✗ | `reviews_withheld` |
+| B | evet | ✓ | ✗ | yanlış sayfa (ana otel), 0 kart |
+| C | evet | ✓ | ✓ | **5 yorum, red flag yok** |
+| D | evet | ✗ | ✓ | `reviews_withheld` |
+| E | evet | ✓ | ✓ | **öteki mekan da temiz** |
+
+D ile C'nin farkı yalnızca ısınma turu; B ile C'nin farkı yalnızca sort
+düzeltmesi. İkisi de gerekli.
+
+### Kök neden 1 — soğuk oturuma yorum gönderilmiyor
+
+Geçmişsiz, çerezsiz bir oturum doğrudan mekan sayfasına gittiğinde Maps
+puanı veriyor ama **yorum sayısını ve Reviews sekmesini göndermiyor**.
+Yakalanan 20 DOM'un 20'sinde `F7nice` içeriği `4.6` — parantezli sayı yok;
+`data-review-id` 0, `>Reviews<` 0. Aynı sayfa sıradan bir tarayıcıda
+`4.6(16)` ve yorumlarıyla geliyor.
+
+Bu **IP meselesi değil**: aynı makinede, aynı adresten, tarayıcıda yorumlar
+gelirken scraper alamıyordu. Önce datacenter IP'sine, sonra headless'a
+bağlandı — ikisi de yanlıştı, deney tablosu ayırdı.
+
+### Kök neden 2 — `sort` kelimesi `Resort` içinde saklanıyor
+
+Sıralama düğmesi `button[aria-label*="Sort" i]` ile aranıyordu. Otel içi bir
+mekanda Maps kontrollere işletmenin adını yazıyor:
+
+```
+aria-label="Located in: Santa Marina, a Luxury Collection Resort, Mykonos"
+```
+
+`Re·sort` eşleşiyor, düğme sıralama kontrolü sanılıyor, tıklanınca **ana
+otelin sayfasına gidiliyor**. Yorum aşaması o otelin panelini okuyup "kart
+yok" diyor. Yakalanan sayfada 131 düğme, 68 aria-label, **5 aday** vardı —
+beşi de otelin kendi kontrolleri.
+
+Aynı tuzağın ters yönü de var: `Backyard by Olde` gerçek bir mekan ve
+sıralama düğmesinin etiketi `"Sort reviews for Backyard by Olde"` oluyor;
+negatif listedeki `back` yüzünden **çalışan düğme atılıyordu**.
+
+### Ne yapıldı
+
+- `_has_sort_word` / `_has_any_word`: kelime sınırıyla eşleşme. Latin
+  kelimeler `(?<![a-zçğıöşü])…(?![a-zçğıöşü])` ile; CJK ve Tayca'da sınır
+  kavramı olmadığı için onlar substring kaldı.
+- Adaylar seçilmeden **toplanıyor**. Sıralama kontrolü sayfada tek bir şey;
+  birden fazla aday kuralın başka bir şeyi yakaladığı anlamına geliyor. En
+  iyi puanlı seçiliyor (sınıf +2, dropdown +1) ve `sort_button_ambiguous`
+  bayrağı adayların etiketleriyle üretiliyor.
+- `extended_warmup` profil alanı: Maps'e gitmeden önce iki rastgele kelimeyle
+  Google araması, sonuçlardan birine giriş. Mekan başına ~10 sn eklediği için
+  varsayılan değil; `İnatçılar - Warmup` profili bunun için hazır.
+
+### Nasıl doğrulandı
+
+- `tests/test_sort_button.py` — 30 test: gerçek etiketler eşleşiyor, otelin
+  beş kontrolü eşleşmiyor, negatif kelimeler kendi kontrollerini hâlâ eliyor
+  ama mekan adlarını elemiyor.
+- **1.225 gerçek işletme adı** ve yakalanan DOM'lardan çıkarılan **678
+  aria-label** üzerinde ölçüm: eski kural 10 yanlış eşleşme, yeni kural 0.
+- Sahada: iki mekan da C ve E denemelerinde yorumlarıyla geldi.
+
+### Açık kalan
+
+Isınma turunun neden işe yaradığı ölçüldü ama **nedeni bilinmiyor** —
+çerez, arama geçmişi, referrer ya da zamanlama olabilir. Hangi bileşenin
+belirleyici olduğu ayrıştırılmadı; şimdilik ampirik bir çözüm.

@@ -106,6 +106,32 @@ mu**. Değişmiyorsa ikinci durumdasın.
 
 ---
 
+## Bir mekanın yorumları hiç gelmiyor (`reviews_withheld`)
+
+**Belirti:** puan var, yorum sayısı yok, Reviews sekmesi yok, her denemede aynı.
+
+**Teşhis:** hata paketindeki `page.html` içinde `F7nice` bloğuna bak. `4.6`
+görüyorsan ve parantezli sayı yoksa, sayfa yorum modülünü hiç göndermemiş.
+
+**Çözüm:** `İnatçılar - Warmup` profiliyle tekrar dene. Isınma turu Maps'e
+gitmeden önce bir Google araması yapıp sonuca giriyor; ölçüldü, bu durumu
+ortadan kaldırıyor. Ayrıntı ve deney tablosu için EDGE_CASES.md §4.
+
+**Not:** bu bir IP meselesi değil. Aynı makinede tarayıcıda yorumlar gelirken
+scraper alamıyordu — bölge değiştirmek çözmez.
+
+## Sıralama düğmesi yanlış öğeyi buluyor (`sort_button_ambiguous`)
+
+**Belirti:** kırmızı bayrakta birden çok aday etiketi listeleniyor, ya da
+yorumlar boş dönüyor ve logda tuhaf bir "sort button" etiketi var.
+
+**Sebep:** Maps kontrollerin etiketine işletmenin adını yazıyor, kelime listesi
+adı kontrol sanıyor. Klasik örnek: `Resort` içindeki `sort`.
+
+**Çözüm:** bayraktaki aday etiketlerine bak, hangi kelimenin yanlış yakalandığını
+gör ve `_has_sort_word` / `NON_SORT_WORDS` listesini düzelt. Eşleşme kelime
+sınırıyla yapılıyor; yeni bir dil eklerken bunu koru.
+
 ## Otel sayfalarında puanlar 0
 
 **Belirti:** teslim edilmiş bir otelin tüm yorumlarında `rating: 0.0`.
