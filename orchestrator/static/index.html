@@ -101,6 +101,11 @@ label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-siz
   border-radius:9px;padding:9px 12px;margin-bottom:10px;font-size:11px;font-weight:700}
 .drain.done{background:var(--green-soft);border-color:#bfe5d8;color:var(--green)}
 .setsum{color:var(--muted);font-weight:700;cursor:pointer}
+.setbar{display:flex;align-items:center;gap:12px;margin-bottom:6px}
+.setbar h2{margin:0}
+.savedat{margin-left:auto;font-size:10px;font-weight:700;color:var(--green)}
+.savedat.flash{animation:sv .9s ease-out}
+@keyframes sv{0%{opacity:0;transform:translateY(-2px)}100%{opacity:1;transform:none}}
 .setsum:hover{color:var(--text)}
 .qstep{display:flex;gap:9px;align-items:baseline;padding:6px 0;
   border-bottom:1px solid var(--line);font-size:12px}
@@ -421,7 +426,14 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
 
 <div id="pageSet" class="hide">
   <div class="eyebrow">Çalıştırma ayarları</div>
-  <h2 style="font-size:24px;font-weight:700;letter-spacing:-.035em;margin-bottom:12px">Ayarlar</h2>
+  <div class="setbar">
+    <h2 style="font-size:24px;font-weight:700;letter-spacing:-.035em">Ayarlar</h2>
+    <span id="savedat" class="savedat"></span>
+    <button class="primary" onclick="saveNow()">Kaydet</button>
+  </div>
+  <p class="sub" style="margin:-4px 0 12px">Değişiklikler anında kaydediliyor —
+    düğme yalnızca hepsini birden yazıp onaylar. Ayarlar bu tarayıcıda saklanır ve
+    run başlatılırken o run'a yazılır.</p>
 
   <div class="panel">
     <h2>Makine</h2>
@@ -599,13 +611,28 @@ const DEFAULTS={machine:'e2-standard-2',spot:true,capture:true,attempts:3,
          'europe-west6-a','europe-west8-a','europe-west9-a','europe-west10-a',
          'europe-west12-a','europe-north1-a','europe-north2-a',
          'europe-southwest1-a','europe-central2-a']};
-let settings={...DEFAULTS}, zoneStats={}, zoneGroups=[], openCont={europe:true};
+let settings={...DEFAULTS}, zoneStats={}, zoneGroups=[], openCont={};
 
 function loadedSettings(){
   try{return {...DEFAULTS, ...JSON.parse(localStorage.hermesSettings||'{}')}}
   catch(e){return {...DEFAULTS}}
 }
-function persist(){ localStorage.hermesSettings=JSON.stringify(settings) }
+/* Ayarlar değiştiği anda kaydediliyor, ama görünür bir işaret olmayınca
+   kaydedilip kaydedilmediği belli olmuyordu. Her yazmada damga güncelleniyor;
+   düğme de aynı işi yapıp aynı damgayı bırakıyor, yani ikisi tek yol. */
+function persist(){
+  localStorage.hermesSettings=JSON.stringify(settings);
+  const el=$('savedat');
+  if(el){
+    const t=new Date().toTimeString().slice(0,8);
+    el.textContent=`kaydedildi ${t}`;
+    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
+  }
+}
+function saveNow(){
+  saveSettings(); saveFleet(); savePool(); saveArc();
+  const el=$('savedat'); if(el) el.textContent+=' ✓';
+}
 function saveSettings(){
   settings.machine=$('machine').value;
   settings.spot=$('spot').checked;
