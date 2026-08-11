@@ -304,3 +304,78 @@ def test_shutdown_gives_up_waiting_rather_than_hanging():
     e.log_event = lambda ev, **k: seen.update({ev: k})
     assert e._await_transfers(timeout=0.01) == 1
     assert seen.get("transfer_wait_timeout", {}).get("remaining") == 1
+
+
+# --- aynı çıkış IP'si ---------------------------------------------------------
+
+def _dup_check(provider_name, vms, vm):
+    """The guard as the execution applies it, without building one."""
+    return None if provider_name == "local" else next(
+        (o for o in vms
+         if o is not vm and o["state"] == "ready"
+         and o.get("egress_ip")
+         and o["egress_ip"] == vm["egress_ip"]), None)
+
+
+def test_local_workers_may_share_the_machines_address():
+    """
+    Local "VMs" are processes on one Mac and share its address by definition.
+    Applying the guard there retired every worker in turn: 35 eliminations,
+    the replacement budget gone, and a run left with no workers at all.
+    """
+    a = {"name": "w0", "state": "ready", "egress_ip": "159.146.28.239"}
+    b = {"name": "w1", "state": "ready", "egress_ip": "159.146.28.239"}
+    assert _dup_check("local", [a, b], b) is None
+
+
+def test_real_vms_sharing_an_address_are_still_caught():
+    """Two cloud VMs behind one IP is two VMs' cost for one VM's diversity."""
+    a = {"name": "w0", "state": "ready", "egress_ip": "34.1.2.3"}
+    b = {"name": "w1", "state": "ready", "egress_ip": "34.1.2.3"}
+    assert _dup_check("gcp", [a, b], b) is a
+
+
+def test_distinct_addresses_pass():
+    a = {"name": "w0", "state": "ready", "egress_ip": "34.1.2.3"}
+    b = {"name": "w1", "state": "ready", "egress_ip": "34.9.9.9"}
+    assert _dup_check("gcp", [a, b], b) is None
+
+
+def _zone_pick(zones, vms):
+    e = object.__new__(coordinator.Execution)
+    e.zones = zones
+    e.vms = vms
+    return e._zone_for_replacement()
+
+
+def test_replacement_avoids_zones_the_fleet_is_already_in():
+    """
+    Rotating by index sends a replacement back where it failed — with
+    thirteen zones the replacement for index 0 is index 13, zone 0 again. For
+    a VM rejected over a shared egress address that is the one place it must
+    not go.
+    """
+    zones = ["europe-west1-b", "europe-west2-c", "europe-west3-c"]
+    vms = [{"zone": "europe-west1-b", "state": "ready"},
+           {"zone": "europe-west2-c", "state": "ready"}]
+    assert _zone_pick(zones, vms) == "europe-west3-c"
+
+
+def test_replacement_picks_the_least_crowded_when_all_are_used():
+    zones = ["a-1", "b-1", "c-1"]
+    vms = [{"zone": "a-1", "state": "ready"}, {"zone": "a-1", "state": "ready"},
+           {"zone": "b-1", "state": "ready"}, {"zone": "c-1", "state": "ready"},
+           {"zone": "c-1", "state": "provisioning"}]
+    assert _zone_pick(zones, vms) == "b-1"
+
+
+def test_dead_vms_do_not_reserve_their_zone():
+    """A deleted VM is not occupying anything; its zone is free again."""
+    zones = ["a-1", "b-1"]
+    vms = [{"zone": "a-1", "state": "deleted"}, {"zone": "b-1", "state": "ready"}]
+    assert _zone_pick(zones, vms) == "a-1"
+
+
+def test_no_zone_list_means_no_hint():
+    assert _zone_pick([], []) is None
+    assert _zone_pick(None, []) is None

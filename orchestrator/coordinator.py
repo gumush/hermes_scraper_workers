@@ -461,10 +461,16 @@ class Execution:
                            egress_ip=vm["egress_ip"])
             # Two VMs behind one egress IP is two VMs' cost for one VM's worth
             # of address diversity, which is the only reason to run several.
-            dup = next((o for o in self.vms
-                        if o is not vm and o["state"] == "ready"
-                        and o.get("egress_ip")
-                        and o["egress_ip"] == vm["egress_ip"]), None)
+            #
+            # Only for real machines. Local workers are processes on this Mac
+            # and share its address by definition, so the check retired every
+            # one of them: 35 eliminations in a row, the replacement budget
+            # spent, and a run left with no workers and its jobs still queued.
+            dup = None if self.provider_name == "local" else next(
+                (o for o in self.vms
+                 if o is not vm and o["state"] == "ready"
+                 and o.get("egress_ip")
+                 and o["egress_ip"] == vm["egress_ip"]), None)
             if dup:
                 self.log_event("vm_duplicate_ip", vm=vm["name"],
                                same_as=dup["name"], ip=vm["egress_ip"])
@@ -557,6 +563,25 @@ class Execution:
             self.persist()
             time.sleep(POLL_INTERVAL)
 
+    def _zone_for_replacement(self) -> Optional[str]:
+        """
+        A zone that is not already carrying this run's machines.
+
+        The rotation by index brings a replacement back to the zone it just
+        failed in, which for a duplicate egress address is the one place it
+        must not go. Prefer a zone with nothing live in it; failing that, the
+        least crowded one, so the fleet keeps spreading instead of stacking.
+        """
+        zones = list(self.zones or [])
+        if not zones:
+            return None
+        used: Dict[str, int] = {z: 0 for z in zones}
+        for vm in self.vms:
+            z = vm.get("zone")
+            if z in used and vm["state"] in ("pending", "provisioning", "ready"):
+                used[z] += 1
+        return min(zones, key=lambda z: (used[z], zones.index(z)))
+
     def _replace_missing_vms(self) -> None:
         """
         Put back capacity the run lost.
@@ -592,16 +617,18 @@ class Execution:
             with self._lock:
                 index = len(self.vms)
                 self.replacements += 1
+            hint = self._zone_for_replacement()
             vm = {"index": index,
                   "name": f"hermes-w{index:02d}-{uuid.uuid4().hex[:6]}",
                   "state": "pending", "slots": self.slots, "active": [],
                   "done": 0, "failed": 0, "consecutive_fails": 0,
-                  "egress_ip": None, "health_fails": 0,
-                  "state_reason": f"kayıp VM yerine ({want} hedef)",
+                  "egress_ip": None, "health_fails": 0, "zone_hint": hint,
+                  "state_reason": f"kayıp VM yerine ({want} hedef)"
+                                  + (f" · {hint}" if hint else ""),
                   "state_since": _now()}
             self.vms.append(vm)
             self.log_event("vm_replacing", vm=vm["name"], alive=len(alive),
-                           want=want, remaining=remaining)
+                           want=want, remaining=remaining, zone=hint)
             threading.Thread(target=self._provision_vm, args=(vm,),
                              daemon=True).start()
 

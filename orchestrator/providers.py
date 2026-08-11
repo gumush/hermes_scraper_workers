@@ -248,7 +248,12 @@ class GcpProvider:
         return self.zones[index % len(self.zones)]
 
     def provision(self, vm: Dict[str, Any]) -> None:
-        zone = self.zone_for(vm["index"])
+        # A replacement can name the zone it wants. Index rotation alone sends
+        # it back where it came from — with thirteen zones the replacement for
+        # index 0 is index 13, which is zone 0 again, so a VM rejected for
+        # sharing an egress address was rebuilt in the address range that
+        # produced it.
+        zone = vm.get("zone_hint") or self.zone_for(vm["index"])
         vm["zone"] = zone
         name = vm["name"]
         create = [
