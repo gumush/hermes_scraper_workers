@@ -228,3 +228,38 @@ def test_failure_bundles_are_ordered_by_attempt_number(sandbox):
     got = [b["attempt"] for b in
            coordinator._failure_bundles(d.parent, "A")]
     assert got == [11, 10, 9, 2, 1]
+
+
+# --- run bitince filo ---------------------------------------------------------
+
+def _exec_stub(**kw):
+    """An Execution without touching a provider or the network."""
+    e = object.__new__(coordinator.Execution)
+    e.shutdown_requested = kw.get("shutdown_requested", False)
+    e.keep_vms_after_run = kw.get("keep_vms_after_run", False)
+    return e
+
+
+def test_finishing_closes_the_fleet_by_default():
+    """
+    Leaving VMs up on completion is how three of them billed for an hour and
+    ate the quota the next run failed against. Closing is the default.
+    """
+    e = _exec_stub()
+    assert (e.shutdown_requested or not e.keep_vms_after_run) is True
+
+
+def test_keeping_the_fleet_is_a_deliberate_choice():
+    e = _exec_stub(keep_vms_after_run=True)
+    assert (e.shutdown_requested or not e.keep_vms_after_run) is False
+
+
+def test_an_explicit_shutdown_still_wins_over_keeping():
+    e = _exec_stub(keep_vms_after_run=True, shutdown_requested=True)
+    assert (e.shutdown_requested or not e.keep_vms_after_run) is True
+
+
+def test_start_request_defaults_to_closing():
+    req = coordinator.StartRequest(
+        run_file=RUN_FILE, profile="p", provider="local", vm_count=1, slots=1)
+    assert req.keep_vms_after_run is False

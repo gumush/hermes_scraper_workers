@@ -172,7 +172,8 @@ class Execution:
                  max_attempts: int = MAX_ATTEMPTS,
                  max_replacements: int = MAX_REPLACEMENTS,
                  vm_fail_limit: int = VM_FAIL_LIMIT,
-                 drain_timeout: int = DRAIN_TIMEOUT):
+                 drain_timeout: int = DRAIN_TIMEOUT,
+                 keep_vms_after_run: bool = False):
         self.id = datetime.now(timezone.utc).strftime("exec-%Y%m%d-%H%M%S")
         self.run_file = run_file
         run_json = json.loads((RUNS_DIR / run_file).read_text())
@@ -236,6 +237,12 @@ class Execution:
         self.max_replacements = max(0, int(max_replacements))
         self.vm_fail_limit = max(1, int(vm_fail_limit))
         self.drain_timeout = max(10, int(drain_timeout))
+        # Finishing used to leave the fleet up so the run could be continued.
+        # It also left it billing, and the next run replaced the execution
+        # object — the only handle on those machines. Three survived an hour
+        # that way and ate the quota the next run then failed against. The
+        # default is now to close, and keeping them is the deliberate choice.
+        self.keep_vms_after_run = bool(keep_vms_after_run)
         self.zones = zones
         if provider_name == "gcp":
             self.provider = GcpProvider(self.api_key, self.dir / "vmout",
@@ -275,6 +282,7 @@ class Execution:
             "max_replacements": self.max_replacements,
             "replacements": self.replacements,
             "vm_fail_limit": self.vm_fail_limit,
+            "keep_vms_after_run": self.keep_vms_after_run,
             "vms": [{k: v for k, v in vm.items() if k != "active"} |
                     {"active": len(vm["active"])} for vm in self.vms],
             "jobs": {p: {**{k: j[k] for k in
@@ -426,8 +434,11 @@ class Execution:
             self.log_event("run_error", error=str(e))
         finally:
             self.persist()
-            if self.shutdown_requested:
+            if self.shutdown_requested or not self.keep_vms_after_run:
                 self._shutdown_all()
+            else:
+                self.log_event("vms_kept", count=sum(
+                    1 for v in self.vms if v["state"] != "deleted"))
 
     def _provision_vm(self, vm: Dict[str, Any]) -> None:
         self._set_vm_state(vm, "provisioning",
@@ -967,6 +978,7 @@ class StartRequest(BaseModel):
     vm_fail_limit: int = VM_FAIL_LIMIT  # consecutive failures before retiring a VM
     drain_timeout: int = DRAIN_TIMEOUT  # seconds spent rescuing packages
     force: bool = False                 # start despite the pre-flight warnings
+    keep_vms_after_run: bool = False    # leave the fleet up when the run ends
     place_ids: Optional[List[str]] = None  # subset to run (retry of a failed set)
     retry_of: Optional[str] = None         # exec_id this retry came from
     capture_failures: bool = True          # screenshot + DOM on a failed place
@@ -1436,6 +1448,7 @@ def start(req: StartRequest):
                          max_replacements=req.max_replacements,
                          vm_fail_limit=req.vm_fail_limit,
                          drain_timeout=req.drain_timeout,
+                         keep_vms_after_run=req.keep_vms_after_run,
                          capture_failures=req.capture_failures)
     _current.log_event("execution_created", run=_current.run_name,
                        profile=req.profile, provider=req.provider,

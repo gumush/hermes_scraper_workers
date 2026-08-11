@@ -494,6 +494,9 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
       <label>VM eleme eşiği
         <input id="vmfail" type="number" min="1" max="10" value="3" onchange="saveFleet()">
         <span class="info" tabindex="0" data-tip="Bir VM üst üste kaç iş düşürünce elenip yerine yenisi açılsın. Amaç farklı bir çıkış IP'si almak. Sayfa kaynaklı hatalar (yorum durumu okunamadı gibi) bu sayaca yazılmaz — VM'in suçu değil.">i</span></label>
+      <label title="Run bitince filoyu açık bırak">
+        <input id="keepvms" type="checkbox" onchange="saveFleet()"> bitince VM'leri açık bırak
+        <span class="info" tabindex="0" data-tip="Varsayılan: run bitince VM'ler otomatik kapanır — önce paketler çekilir, sonra makineler silinir. Açık bırakmak yalnızca hemen ardından aynı filoyla iş vereceksen mantıklı; aksi hâlde fatura işlemeye devam eder ve biten bir run'ın VM'leri yeni run başlatılınca sahipsiz kalır — üç makine bir saat böyle çalıştı ve sonraki run'ın kotasını yedi.">i</span></label>
       <label>drain süresi (sn)
         <input id="drain" type="number" min="10" max="600" value="90" onchange="saveFleet()">
         <span class="info" tabindex="0" data-tip="Kapatırken VM'lerde hazır bekleyen paketleri çekmek için tanınan süre. Bu sürede gelmeyen paket kaybolur, o mekan tekrar kazınır. Uzatmak veri kurtarır ama VM'ler o kadar süre daha faturalanır.">i</span></label>
@@ -580,7 +583,7 @@ const CONT_TR={europe:'Avrupa',us:'ABD',asia:'Asya',me:'Orta Doğu',
   australia:'Avustralya',africa:'Afrika'};
 const RETRY_TRIES=5;
 const DEFAULTS={machine:'e2-standard-2',spot:true,capture:true,attempts:3,
-  vms:2,slots:1,repl:24,vmfail:3,drain:90,arcdir:'',
+  vms:2,slots:1,repl:24,vmfail:3,drain:90,arcdir:'',keepvms:false,
   zones:['europe-west1-b','europe-west2-c','europe-west3-c','europe-west4-a',
          'europe-west6-a','europe-west8-a','europe-west9-a','europe-west10-a',
          'europe-west12-a','europe-north1-a','europe-north2-a',
@@ -605,12 +608,13 @@ function saveFleet(){
   settings.repl=Math.min(60,Math.max(0,+$('repl').value||24));
   settings.vmfail=Math.min(10,Math.max(1,+$('vmfail').value||3));
   settings.drain=Math.min(600,Math.max(10,+$('drain').value||90));
+  settings.keepvms=$('keepvms').checked;
   persist(); renderSetSummary();
 }
 function applyFleet(){
   if(!$('repl'))return;
   $('repl').value=settings.repl; $('vmfail').value=settings.vmfail;
-  $('drain').value=settings.drain;
+  $('drain').value=settings.drain; $('keepvms').checked=!!settings.keepvms;
 }
 function savePool(){
   settings.vms=Math.min(32,Math.max(1,+$('vms').value||2));
@@ -833,7 +837,8 @@ async function start(){
         capture_failures:settings.capture,zones:settings.zones,
         max_attempts:+$('tries').value||settings.attempts,
         max_replacements:settings.repl,vm_fail_limit:settings.vmfail,
-        drain_timeout:settings.drain,force:true})});
+        drain_timeout:settings.drain,keep_vms_after_run:settings.keepvms,
+        force:true})});
     running=true;$('stopBtn').disabled=false;
   }catch(e){alert(e.message);$('startBtn').disabled=false}
 }
@@ -963,6 +968,8 @@ async function tick(){
       pill('deneme',s.max_attempts??'–')+
       pill('eleme',s.vm_fail_limit??'–')+
       pill('makine',`${esc(s.machine_type||'–')}${s.spot?' · spot':''}`)+
+      pill('bitince',s.keep_vms_after_run?'VM açık kalır':'VM kapanır',
+        s.keep_vms_after_run?'badge-warn':'')+
       pill('profil',esc(s.profile))+
       pill('provider',esc(s.provider)));
   if((s.replacements??0)>=(s.max_replacements??1e9))
@@ -1261,7 +1268,7 @@ async function retryFailed(stem,execId){
         capture_failures:settings.capture,zones:settings.zones,
         max_attempts:tries,
         max_replacements:settings.repl,vm_fail_limit:settings.vmfail,
-        drain_timeout:settings.drain,
+        drain_timeout:settings.drain,keep_vms_after_run:settings.keepvms,
         place_ids:f.places.map(p=>p.place_id),retry_of:execId})});
     alert(`Başladı: ${r.exec_id} (${r.places} mekan)`);
     showTab('ctl');
