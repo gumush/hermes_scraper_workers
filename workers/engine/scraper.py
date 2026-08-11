@@ -9,7 +9,9 @@ import os
 import platform
 import re
 import threading
+import random
 import time
+from urllib.parse import quote_plus
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -96,6 +98,38 @@ PLACE_URL_TIMEOUT = 20
 
 # Words that identify a sort control. Kept at module level so every path that
 # looks for one tests the same thing.
+NON_SORT_WORDS = ("back", "next", "previous", "close", "cancel",
+                  "חזרה", "סגור", "ปิด")
+
+
+def _has_any_word(text: str, words) -> bool:
+    """
+    Word-boundary membership, for lists matched against control labels.
+
+    Maps writes the place's name into its controls: the sort button on
+    "Backyard by Olde" is labelled "Sort reviews for Backyard by Olde", and a
+    substring check on "back" threw away the one control being looked for.
+    """
+    low = (text or "").lower()
+    for w in words:
+        if any(ch.isascii() and ch.isalpha() for ch in w):
+            if re.search(rf"(?<![a-zçğıöşü]){re.escape(w)}(?![a-zçğıöşü])", low):
+                return True
+        elif w in low:
+            return True
+    return False
+
+
+def _has_sort_word(text: str) -> bool:
+    """
+    Does this text name a sort control, as a word rather than a fragment?
+
+    Latin keywords are matched between word boundaries; the CJK and Thai
+    entries have no boundaries to match on, so they stay substring checks.
+    """
+    return _has_any_word(text, SORT_WORDS)
+
+
 SORT_WORDS = ("sort", "sırala", "סידור", "เรียง", "排序", "trier", "ordenar",
               "sortieren")
 
@@ -663,6 +697,55 @@ class GoogleReviewsScraper:
             """))
         except Exception:  # noqa: BLE001
             return False
+
+    # Two ordinary words to search for. Kept dull and unrelated to the job:
+    # the point is a plausible visit, not a useful one.
+    WARMUP_WORDS = (
+        "hava", "kitap", "kahve", "tarif", "otobüs", "sözlük", "harita",
+        "weather", "recipe", "museum", "train", "dictionary", "poster",
+        "market", "concert", "flight", "bakery", "island", "festival",
+    )
+
+    def _extended_warmup(self, driver: Chrome) -> None:
+        """
+        Arrive at Maps having already been somewhere.
+
+        Two places served their rating without a review count, no Reviews tab
+        and no review cards — from thirteen cloud addresses and from a home
+        connection alike, while the same URL in an ordinary browser on that
+        same connection carried the reviews. The address was not the
+        difference, so the remaining one is how the session looks: no
+        history, no cookies, straight to a place page.
+
+        So: a search for two unrelated words, one result opened, then back.
+        Best effort throughout — a warmup that fails must not cost the scrape
+        it was meant to help.
+        """
+        try:
+            words = " ".join(random.sample(self.WARMUP_WORDS, 2))
+            self._report("warmup", step=f"arama: {words}")
+            log.info("Extended warmup: searching %r", words)
+            driver.get(self._with_hl("https://www.google.com/search?q="
+                                     + quote_plus(words)))
+            self.dismiss_cookies(driver)
+            time.sleep(random.uniform(1.5, 3.0))
+
+            links = [a for a in driver.find_elements(By.CSS_SELECTOR, "a[href^='http']")
+                     if (a.get_attribute("href") or "").startswith("http")
+                     and "google." not in (a.get_attribute("href") or "")]
+            if links:
+                target = random.choice(links[:8])
+                href = target.get_attribute("href")
+                log.info("Extended warmup: opening %s", (href or "")[:80])
+                self._report("warmup", step="sonuç açılıyor")
+                driver.get(href)
+                time.sleep(random.uniform(2.0, 4.0))
+            else:
+                log.info("Extended warmup: no result link found, search only")
+            self._report("warmup", step="bitti")
+        except Exception as e:  # noqa: BLE001
+            # Never fatal: this is preparation, not the work.
+            log.warning("Extended warmup skipped: %s", str(e)[:120])
 
     @staticmethod
     def _rating_block_text(driver: Chrome) -> str:
@@ -1542,63 +1625,82 @@ class GoogleReviewsScraper:
             ]
 
             # Attempt to find the sort button
-            sort_button = None
-
-            # Try each selector
+            # Every candidate is collected before one is chosen. The search
+            # used to take the first element any selector returned, and on a
+            # venue inside a hotel that was one of five wrong answers — all of
+            # them the hotel's own controls, matched because "sort" hides
+            # inside "Resort". A sort control is a single thing on the page;
+            # more than one candidate means the rule is matching something
+            # else, and that is worth reporting rather than guessing through.
+            candidates = []
+            seen_ids = set()
             for selector in sort_button_selectors:
                 try:
                     elements = driver.find_elements(By.CSS_SELECTOR, selector)
-                    for element in elements:
-                        try:
-                            # Skip invisible/disabled elements
-                            if not element.is_displayed() or not element.is_enabled():
-                                continue
-
-                            # Get button text and attributes for verification
-                            button_text = element.text.strip() if element.text else ""
-                            button_aria = element.get_attribute("aria-label") or ""
-                            button_class = element.get_attribute("class") or ""
-
-                            # Skip buttons that are clearly not sort buttons
-                            negative_keywords = ["back", "next", "previous", "close", "cancel", "חזרה", "סגור", "ปิด"]
-                            if any(keyword in button_text.lower() or keyword in button_aria.lower()
-                                   for keyword in negative_keywords):
-                                continue
-
-                            # Positive detection for sort buttons
-                            has_sort_keyword = any(
-                                k in button_text.lower() or k in button_aria.lower()
-                                for k in SORT_WORDS)
-                            
-                            # Check for common sort button classes
-                            has_sort_class = "HQzyZ" in button_class or "sort" in button_class.lower()
-                            
-                            # Check for aria attributes that indicate a dropdown
-                            has_dropdown_attrs = (element.get_attribute("aria-haspopup") == "true" or
-                                                element.get_attribute("aria-expanded") is not None)
-
-                            # A dropdown attribute is not evidence of a sort
-                            # control — plenty of buttons carry aria-expanded.
-                            # One such button, labelled "More info", was
-                            # accepted as the sort control on a live run, after
-                            # which every click method failed against it. Name
-                            # or class must identify it; the dropdown attribute
-                            # only strengthens a match already made.
-                            if has_sort_keyword or has_sort_class:
-                                sort_button = element
-                                log.info(f"Found sort button with selector: {selector}")
-                                log.info(f"Button text: '{button_text}', aria-label: "
-                                         f"'{button_aria}', dropdown={has_dropdown_attrs}")
-                                break
-                        except Exception as e:
-                            log.debug(f"Error checking element: {e}")
+                except Exception:  # noqa: BLE001
+                    continue
+                for element in elements:
+                    try:
+                        if not element.is_displayed() or not element.is_enabled():
+                            continue
+                        eid = element.id
+                        if eid in seen_ids:
                             continue
 
-                    if sort_button:
-                        break
-                except Exception as e:
-                    log.debug(f"Error with selector '{selector}': {e}")
-                    continue
+                        button_text = element.text.strip() if element.text else ""
+                        button_aria = element.get_attribute("aria-label") or ""
+                        button_class = element.get_attribute("class") or ""
+
+                        # Negative words are matched as words too: a place
+                        # called "Backyard by Olde" puts "back" inside the
+                        # label of its own perfectly good sort control.
+                        if _has_any_word(button_text, NON_SORT_WORDS) or \
+                                _has_any_word(button_aria, NON_SORT_WORDS):
+                            continue
+
+                        has_sort_keyword = _has_sort_word(button_text) or \
+                            _has_sort_word(button_aria)
+                        has_sort_class = ("HQzyZ" in button_class
+                                          or "sort" in button_class.lower())
+                        if not (has_sort_keyword or has_sort_class):
+                            continue
+
+                        has_dropdown_attrs = (
+                            element.get_attribute("aria-haspopup") == "true"
+                            or element.get_attribute("aria-expanded") is not None)
+                        seen_ids.add(eid)
+                        candidates.append({
+                            "el": element, "selector": selector,
+                            "text": button_text, "aria": button_aria,
+                            "class": button_class,
+                            # A dropdown attribute is not evidence on its own —
+                            # plenty of buttons carry aria-expanded — but it
+                            # separates a real menu from a link when the name
+                            # already matched.
+                            "score": (2 if has_sort_class else 0)
+                                     + (1 if has_dropdown_attrs else 0),
+                        })
+                    except Exception as e:  # noqa: BLE001
+                        log.debug(f"Error checking element: {e}")
+
+            sort_button = None
+            if len(candidates) == 1:
+                sort_button = candidates[0]["el"]
+                log.info("Found sort button: %r (aria=%r) via %s",
+                         candidates[0]["text"][:60], candidates[0]["aria"][:60],
+                         candidates[0]["selector"])
+            elif len(candidates) > 1:
+                candidates.sort(key=lambda c: c["score"], reverse=True)
+                etiketler = [f"{c['aria'] or c['text']}"[:70] for c in candidates]
+                log.warning("Sort control is ambiguous — %d candidates: %s",
+                            len(candidates), " | ".join(etiketler))
+                self.capture_failure(driver, "sort_button_ambiguous",
+                                     candidates=etiketler)
+                self._flag("sort_button_ambiguous",
+                           f"{len(candidates)} sıralama düğmesi adayı bulundu; "
+                           "kural yanlış öğeyi de yakalıyor olabilir",
+                           candidates=etiketler)
+                sort_button = candidates[0]["el"]
 
             # If no button found with CSS selectors, try finding it from its container
             if not sort_button:
@@ -2138,6 +2240,9 @@ class GoogleReviewsScraper:
         try:
             driver = self.setup_driver(headless)
             wait = WebDriverWait(driver, 20)  # Reduced from 40 to 20 for faster timeout
+
+            if self.config.get("extended_warmup"):
+                self._extended_warmup(driver)
 
             # Navigate using limited-view bypass (search-based navigation)
             self._report("navigating")

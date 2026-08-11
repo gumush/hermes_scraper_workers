@@ -68,6 +68,11 @@ PROFILES_PATH = ORCH_DIR / "profiles.json"
 # min_review_photos   bu kadar yorum fotoğrafı görülene dek max_reviews aşılır
 # max_reviews_cap     ama en fazla bu kadar yoruma kadar (foto hedefi sınırsız değil)
 # place_photos_limit  kaç owner (işletme) fotoğrafı indirilecek
+# extended_warmup     Maps'e gitmeden önce Google'da arama yapıp bir sonuca
+#                     girer. Soğuk oturuma yorumlarını hiç göstermeyen
+#                     mekanlar için: ölçüldü, warmup'sız "sayı yok, sekme yok",
+#                     warmup'la aynı mekan yorumlarıyla geldi. Mekan başına
+#                     ~10 sn ekler, o yüzden varsayılan değil.
 DEFAULT_PROFILES = {
     "Standart - Google": {
         "mode": "fresh",
@@ -81,6 +86,15 @@ DEFAULT_PROFILES = {
         "mode": "update",
         "place_photos_limit": 60,
         "download_review_images": True,
+    },
+    "İnatçılar - Warmup": {
+        "mode": "fresh",
+        "max_reviews": 100,
+        "max_reviews_cap": 250,
+        "min_review_photos": 50,
+        "place_photos_limit": 60,
+        "download_review_images": True,
+        "extended_warmup": True,
     },
 }
 
@@ -368,6 +382,7 @@ class Execution:
             "place_photos_limit": int(
                 prof.get("place_photos_limit", std["place_photos_limit"]) or 0),
             "capture_failures": bool(self.capture_failures),
+            "extended_warmup": bool(prof.get("extended_warmup")),
             "meta": {"place_id": place_id},
         }
         if prof.get("mode") == "update" and place_id in self.baseline:
@@ -1059,6 +1074,7 @@ class ProfileRequest(BaseModel):
     max_reviews_cap: int = 250      # ama en fazla bu kadar yorum
     place_photos_limit: int = 60    # kaç owner fotoğrafı
     download_review_images: bool = True
+    extended_warmup: bool = False
     rename_from: Optional[str] = None   # düzenlemede eski ad (ad değiştirmek için)
 
 
@@ -1379,6 +1395,7 @@ def save_profile(req: ProfileRequest):
         "max_reviews_cap": req.max_reviews_cap,
         "place_photos_limit": req.place_photos_limit,
         "download_review_images": req.download_review_images,
+        "extended_warmup": req.extended_warmup,
     }
     PROFILES_PATH.write_text(json.dumps(profiles, ensure_ascii=False, indent=1))
     return profiles

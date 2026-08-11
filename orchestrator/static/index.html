@@ -483,6 +483,9 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
         yorum tavanı <input id="np_cap" type="number" min="0" value="250"></label>
       <label title="Yorumlara eklenen fotoğrafları da indir">
         <input id="np_dl" type="checkbox" checked style="width:auto"> yorum fotoğraflarını indir</label>
+      <label>
+        <input id="np_warm" type="checkbox" style="width:auto"> ısınma turu
+        <span class="info" tabindex="0" data-tip="Maps&#x27;e gitmeden önce Google&#x27;da iki rastgele kelime aratır ve bir sonuca girer. Soğuk oturuma yorumlarını hiç göstermeyen mekanlar için — ölçüldü: warmup&#x27;sız sayfa puanı veriyor ama yorum sayısı ve Reviews sekmesi gelmiyor, warmup&#x27;la aynı mekan yorumlarıyla açılıyor. Mekan başına ~10 sn ekler; varsayılan değil, inatçılar için.">i</span></label>
     </div>
     <div class="row">
       <button class="primary" onclick="saveProfile()">Kaydet</button>
@@ -822,7 +825,8 @@ function renderProfSummary(){
     +bit('owner foto',p.place_photos_limit??60)
     +bit('min yorum fot.',p.min_review_photos??0)
     +bit('yorum tavanı',p.max_reviews_cap??250)
-    +bit('yorum fot.',p.download_review_images?'indir':'indirme');
+    +bit('yorum fot.',p.download_review_images?'indir':'indirme')
+    +(p.extended_warmup?bit('ısınma','açık'):'');
 }
 function renderProfList(){
   const el=$('proflist'); if(!el)return;
@@ -840,6 +844,7 @@ function fillProfForm(name,p){
   $('np_photo').value=p.min_review_photos??50;
   $('np_cap').value=p.max_reviews_cap??250;
   $('np_dl').checked=p.download_review_images!==false;
+  $('np_warm').checked=!!p.extended_warmup;
   $('np_del').classList.toggle('hide',!name);
   $('newprof').classList.remove('hide');
 }
@@ -854,6 +859,7 @@ async function saveProfile(){
         max_reviews_cap:+$('np_cap').value,
         place_photos_limit:+$('np_owner').value,
         download_review_images:$('np_dl').checked,
+        extended_warmup:$('np_warm').checked,
         rename_from:editing})});
   }catch(e){alert('kaydedilemedi: '+e.message);return}
   $('newprof').classList.add('hide');editing=null;await loadSetup(name);renderProfList();

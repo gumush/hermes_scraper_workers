@@ -362,7 +362,7 @@ def _scrape_worker() -> None:
             for key in ("max_reviews", "max_reviews_cap",
                         "min_review_photos", "sort_by",
                         "language", "place_photos_limit", "scrape_mode",
-                        "date_filter"):
+                        "date_filter", "extended_warmup"):
                 if job["request"].get(key) is not None:
                     config[key] = job["request"][key]
 
