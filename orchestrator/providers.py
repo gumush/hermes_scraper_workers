@@ -20,6 +20,7 @@ Provider contract (all methods synchronous; coordinator threads them):
 import json
 import logging
 import os
+import signal
 import shlex
 import shutil
 import subprocess
@@ -53,11 +54,16 @@ class LocalProvider:
                    SPOT_PORT=str(port),
                    SPOT_OUT_DIR=str(out_dir),
                    SPOT_SCRAPE_WORKERS=str(vm.get("slots", 1)))
+        # Its own process group, so the whole tree can be taken down later.
+        # A worker spawns Chrome and a uc_driver; terminating only the worker
+        # left those running — three of them were found still alive hours
+        # after the run that started them had finished.
         proc = subprocess.Popen(
             [sys.executable, "-m", "workers.server"],
             cwd=str(REPO_ROOT), env=env,
             stdout=open(out_dir / "worker.log", "w"),
-            stderr=subprocess.STDOUT)
+            stderr=subprocess.STDOUT,
+            start_new_session=True)
         self._procs[vm["name"]] = proc
         vm["port"] = port
         # wait for health
@@ -85,13 +91,32 @@ class LocalProvider:
             return None
 
     def delete(self, vm: Dict[str, Any]) -> None:
+        """
+        Stop the worker and everything it started.
+
+        Signalling the process group rather than the process: the browser and
+        its driver are children, and killing only the parent orphans them.
+        """
         proc = self._procs.pop(vm["name"], None)
-        if proc and proc.poll() is None:
-            proc.terminate()
+        if not proc or proc.poll() is not None:
+            return
+        try:
+            pgid = os.getpgid(proc.pid)
+        except OSError:
+            pgid = None
+        for sig, grace in ((signal.SIGTERM, 10), (signal.SIGKILL, 5)):
             try:
-                proc.wait(timeout=10)
+                if pgid is not None:
+                    os.killpg(pgid, sig)
+                else:
+                    proc.send_signal(sig)
+            except (ProcessLookupError, PermissionError):
+                return
+            try:
+                proc.wait(timeout=grace)
+                return
             except subprocess.TimeoutExpired:
-                proc.kill()
+                continue
 
     def list_remaining(self) -> List[str]:
         return [name for name, p in self._procs.items() if p.poll() is None]
@@ -348,3 +373,23 @@ class GcpProvider:
                          "--filter=labels.hermes=1",
                          "--format=value(name)"], timeout=60)
         return [ln for ln in out.strip().splitlines() if ln]
+
+    @staticmethod
+    def list_all_hermes() -> List[str]:
+        """
+        Every hermes VM in the project, asked without an execution.
+
+        Shutdown has to be able to check after the execution object is gone —
+        and the whole point of the check is to trust gcloud rather than our
+        own record of what we deleted.
+        """
+        try:
+            out = subprocess.run(
+                ["gcloud", "compute", "instances", "list",
+                 "--filter=labels.hermes=1", "--format=value(name)"],
+                capture_output=True, text=True, timeout=90)
+        except Exception as e:  # noqa: BLE001
+            raise RuntimeError(f"gcloud sorgulanamadı: {e}") from e
+        if out.returncode != 0:
+            raise RuntimeError(_gcloud_reason(out.stderr))
+        return [ln for ln in out.stdout.strip().splitlines() if ln]

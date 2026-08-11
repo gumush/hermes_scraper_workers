@@ -102,6 +102,19 @@ label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-siz
 .drain.done{background:var(--green-soft);border-color:#bfe5d8;color:var(--green)}
 .setsum{color:var(--muted);font-weight:700;cursor:pointer}
 .setsum:hover{color:var(--text)}
+.qstep{display:flex;gap:9px;align-items:baseline;padding:6px 0;
+  border-bottom:1px solid var(--line);font-size:12px}
+.qstep:last-child{border-bottom:0}
+.qstep .qs{width:14px;color:var(--subtle)}
+.qstep b{font-weight:700}
+.qstep i{font-style:normal;color:var(--muted);font-size:11px;margin-left:auto}
+.qstep.running .qs{color:var(--amber)}
+.qstep.done .qs{color:var(--green)}
+.qstep.failed .qs{color:var(--red)}
+.qstep.failed b{color:var(--red)}
+#quitbox{position:fixed;inset:0;background:rgba(15,18,22,.45);display:flex;
+  align-items:center;justify-content:center;z-index:70}
+#quitbox.hide{display:none}
 #delbox{position:fixed;inset:0;background:rgba(15,18,22,.45);display:flex;
   align-items:center;justify-content:center;z-index:60}
 #delbox.hide{display:none}
@@ -292,6 +305,8 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
     <button class="danger" id="stopBtn" onclick="shutdownAll()" disabled>Tüm VM'leri kapat</button>
     <button onclick="restartServer()" title="Kodu yeniden yükler (çalışan run varken reddedilir)">⟳ Yeniden başlat</button>
     <button class="sm" onclick="verifyNow()" title="gcloud'a sorup gerçekten VM kalmadığını doğrular">VM'leri doğrula</button>
+    <button class="danger sm" onclick="quitService()"
+      title="Paketleri çek, VM'leri sil, doğrula, artıkları temizle, sonra kapan">Servisi kapat</button>
     <span id="verifyBadge"></span>
   </div>
   </div>
@@ -403,6 +418,19 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
       <span id="zonecount" style="color:var(--muted);font-size:10px"></span>
     </div>
     <div id="zonepicker" class="zonegrid"></div>
+  </div>
+</div>
+
+<!-- servis kapatma -->
+<div id="quitbox" class="hide">
+  <div class="delcard">
+    <b>Servis kapatılıyor</b>
+    <div class="sub">Panelden durdurma yok: süreç dışarıdan öldürülürse VM'ler
+      sahipsiz kalır. Sıra bitmeden kapanmaz.</div>
+    <div id="quitsteps"></div>
+    <div class="row" style="margin-top:12px">
+      <button id="quitClose" onclick="$('quitbox').classList.add('hide')">Kapat</button>
+    </div>
   </div>
 </div>
 
@@ -846,6 +874,39 @@ async function loadBrowse(){
     </div>`).join('');
 }
 function toggleRun(i){$('runbody'+i).classList.toggle('hide')}
+
+/* ---------- servisi kapat ---------- */
+/* Adımlar tek tek gösteriliyor çünkü kapanış sessiz olduğunda kimse VM'lerin
+   gerçekten gittiğini bilmiyor — bir kez sahipsiz kalıp fatura işlettiler. */
+const QSYM={pending:'○',running:'◍',done:'●',failed:'✕'};
+function renderQuit(q){
+  $('quitsteps').innerHTML=(q.steps||[]).map(s=>
+    `<div class="qstep ${esc(s.state)}"><span class="qs">${QSYM[s.state]||'○'}</span>
+      <b>${esc(s.label)}</b>${s.detail?`<i>${esc(s.detail)}</i>`:''}</div>`).join('')
+    + (q.error?`<div class="badge-err" style="margin-top:8px">${esc(q.error)}</div>`:'');
+}
+async function quitService(){
+  if(!confirm('Servis kapatılacak.\n\nÖnce paketler VM\'lerden çekilir, sonra VM\'ler '
+    +'silinip gcloud ile doğrulanır, yerel artıklar temizlenir ve süreç kapanır.\n\nDevam?'))return;
+  $('quitbox').classList.remove('hide');
+  $('quitsteps').innerHTML='<div class="sub">başlatılıyor…</div>';
+  try{ renderQuit(await j('/api/quit',{method:'POST'})) }
+  catch(e){ $('quitsteps').innerHTML=`<div class="badge-err">${esc(e.message)}</div>`; return }
+  const t=setInterval(async()=>{
+    let q;
+    try{ q=await j('/api/quit') }
+    catch(e){
+      // Süreç kapandı: artık cevap veremiyor, beklenen son.
+      clearInterval(t);
+      $('quitsteps').innerHTML+='<div class="qstep done"><span class="qs">●</span>'
+        +'<b>Süreç kapandı</b><i>panelden yeniden başlatılabilir</i></div>';
+      return;
+    }
+    renderQuit(q);
+    if(q.finished&&!q.error) return;      // exit adımı bağlantıyı koparacak
+    if(q.error) clearInterval(t);
+  },1000);
+}
 
 /* ---------- run silme ---------- */
 /* Silinecek olan geri gelmiyor, o yüzden onay ekranı tahmin değil gerçek

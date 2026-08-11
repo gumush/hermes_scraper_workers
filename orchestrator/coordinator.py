@@ -30,6 +30,8 @@ import logging
 import os
 import secrets
 import shutil
+import signal
+import subprocess
 import tarfile
 import threading
 import time
@@ -1194,6 +1196,133 @@ def status():
         lines = log_path.read_text(encoding="utf-8").strip().splitlines()
         snap["log_tail"] = [json.loads(ln) for ln in lines[-40:]]
     return snap
+
+
+# --- servisin kendini kapatması ---------------------------------------------
+# Süreci dışarıdan öldürmek VM'leri sahipsiz bırakıyor: tüneller bu süreçte
+# yaşıyor, ölünce kimse onları silemiyor ve fatura işlemeye devam ediyor.
+# Bu yüzden panelde durdurma yok; kapatma buradan, sırayla ve görünür yapılıyor.
+_QUIT: Optional[Dict[str, Any]] = None
+
+
+def _quit_steps() -> List[Dict[str, Any]]:
+    return [{"key": k, "label": t, "state": "pending", "detail": ""}
+            for k, t in (("drain", "Paketler VM'lerden çekiliyor"),
+                         ("vms", "VM'ler siliniyor"),
+                         ("verify", "gcloud ile doğrulanıyor"),
+                         ("local", "Yerel worker/tarayıcı artıkları temizleniyor"),
+                         ("exit", "Süreç kapanıyor"))]
+
+
+def _sweep_local_leftovers() -> Dict[str, Any]:
+    """
+    Kill worker processes and browsers this checkout started and left behind.
+
+    Scoped to this tree's own path: a pattern-based sweep is how a running
+    coordinator got killed once. Anything outside this directory is not ours
+    to touch.
+    """
+    root = str(REPO_ROOT)
+    killed: List[str] = []
+    try:
+        out = subprocess.run(["ps", "-axo", "pid=,command="],
+                             capture_output=True, text=True, timeout=15).stdout
+    except Exception as e:  # noqa: BLE001
+        return {"killed": 0, "error": str(e)[:120]}
+    me = os.getpid()
+    for line in out.splitlines():
+        line = line.strip()
+        pid_str, _, cmd = line.partition(" ")
+        if not pid_str.isdigit():
+            continue
+        pid = int(pid_str)
+        if pid == me or root not in cmd:
+            continue
+        if not any(t in cmd for t in ("workers.server", "uc_driver",
+                                      "chromedriver", "Chrome")):
+            continue
+        try:
+            os.kill(pid, signal.SIGTERM)
+            killed.append(f"{pid} {cmd.split()[0].rsplit('/', 1)[-1]}")
+        except (ProcessLookupError, PermissionError):
+            continue
+    return {"killed": len(killed), "items": killed[:10]}
+
+
+def _run_quit() -> None:
+    global _QUIT
+    assert _QUIT is not None
+    steps = {s["key"]: s for s in _QUIT["steps"]}
+
+    def mark(key: str, state: str, detail: str = "") -> None:
+        steps[key]["state"] = state
+        if detail:
+            steps[key]["detail"] = detail
+
+    exe = _current
+    try:
+        if exe and exe.state in LIVE_STATES:
+            mark("drain", "running")
+            exe.request_shutdown()
+            waited = 0.0
+            while exe.state not in ("closed", "error") and waited < DRAIN_TIMEOUT + 120:
+                time.sleep(1.0)
+                waited += 1.0
+                d = exe.drain or {}
+                mark("drain", "running",
+                     f"{d.get('pulled', 0)} paket kurtarıldı"
+                     if d else "kapanış bekleniyor")
+            d = exe.drain or {}
+            mark("drain", "done", f"{d.get('pulled', 0)} paket kurtarıldı, "
+                                  f"{d.get('failed', 0)} alınamadı")
+            mark("vms", "done",
+                 f"{sum(1 for v in exe.vms if v['state'] == 'deleted')} VM silindi")
+        else:
+            mark("drain", "done", "çalışan run yok")
+            mark("vms", "done", "silinecek VM yok")
+
+        mark("verify", "running")
+        left = GcpProvider.list_all_hermes()
+        if left:
+            mark("verify", "failed", f"{len(left)} VM hâlâ açık: {', '.join(left[:5])}")
+        else:
+            mark("verify", "done", "açık VM yok")
+
+        mark("local", "running")
+        swept = _sweep_local_leftovers()
+        mark("local", "done", f"{swept.get('killed', 0)} süreç kapatıldı")
+
+        mark("exit", "running", "3 sn içinde")
+        _QUIT["finished"] = True
+    except Exception as e:  # noqa: BLE001
+        _QUIT["error"] = str(e)[:200]
+        _QUIT["finished"] = True
+        log.exception("quit failed")
+        return
+
+    def _die() -> None:
+        time.sleep(3)
+        log.info("shutting down on request")
+        os._exit(0)
+
+    threading.Thread(target=_die, daemon=True).start()
+
+
+@app.post("/api/quit")
+def quit_service():
+    """Kapatma akışını başlat; ilerleme GET /api/quit ile okunur."""
+    global _QUIT
+    if _QUIT and not _QUIT.get("finished"):
+        return _QUIT
+    _QUIT = {"steps": _quit_steps(), "finished": False, "error": None,
+             "started": _now()}
+    threading.Thread(target=_run_quit, daemon=True).start()
+    return _QUIT
+
+
+@app.get("/api/quit")
+def quit_status():
+    return _QUIT or {"steps": [], "finished": False, "started": None}
 
 
 @app.post("/api/restart")
