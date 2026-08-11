@@ -127,7 +127,34 @@ label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-siz
   border-radius:6px;padding:3px 8px;font-size:11px;font-weight:700;letter-spacing:-.01em}
 #profsum i,.pills i{color:var(--muted);font-style:normal;font-weight:750;font-size:9px;
   text-transform:uppercase;letter-spacing:.05em;margin-right:5px}
-.zonegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px}
+/* Sayıların ne işe yaradığı ayarların yanında durmalı; açıklama için başka bir
+   belgeye bakmak zorunda kalmak, yanlış değerin sebebi oluyor. */
+.info{display:inline-flex;align-items:center;justify-content:center;
+  width:14px;height:14px;border-radius:50%;border:1px solid var(--line);
+  background:var(--panel-muted);color:var(--muted);font-size:9px;font-weight:800;
+  font-style:italic;cursor:help;position:relative;margin-left:5px;flex:none}
+.info:hover,.info:focus{border-color:var(--accent);color:var(--accent);outline:none}
+.info::after{content:attr(data-tip);position:absolute;left:50%;bottom:calc(100% + 7px);
+  transform:translateX(-50%);width:300px;padding:9px 11px;border-radius:8px;
+  background:var(--text);color:var(--panel);font-size:11px;font-weight:400;
+  font-style:normal;line-height:1.5;letter-spacing:0;text-align:left;
+  white-space:normal;opacity:0;visibility:hidden;transition:opacity .12s;
+  z-index:80;box-shadow:0 8px 24px rgba(15,18,22,.25)}
+.info:hover::after,.info:focus::after{opacity:1;visibility:visible}
+.cgroup{border:1px solid var(--line);border-radius:9px;margin-bottom:8px;overflow:hidden}
+.cgroup.open{border-color:var(--accent-soft)}
+.chead{display:flex;align-items:center;gap:9px;padding:9px 12px;cursor:pointer;
+  background:var(--panel);font-size:12px}
+.chead:hover{background:var(--panel-muted)}
+.cgroup.open .chead{background:var(--panel-muted);border-bottom:1px solid var(--line)}
+.chead .caret{width:12px;color:var(--muted)}
+.chead b{font-weight:700}
+.chead .cnt{margin-left:auto;font-size:10px;font-weight:700;color:var(--subtle);
+  background:var(--panel);border:1px solid var(--line);border-radius:5px;padding:1px 7px}
+.chead .cnt.on{color:var(--accent);border-color:var(--accent-soft)}
+.zonegrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));
+  gap:8px;padding:10px 12px}
+.zonecard input:disabled+div{opacity:.45}
 .zonecard{display:flex;align-items:center;gap:9px;background:var(--panel);
   border:1px solid var(--line);border-radius:9px;padding:9px 11px;cursor:pointer;
   color:var(--text);font-weight:500}
@@ -408,6 +435,24 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   </div>
 
   <div class="panel">
+    <h2>Filo davranışı</h2>
+    <p class="sub">Bir run sırasında VM'lerin nasıl elendiğini, yerine yenisinin
+      açılıp açılmayacağını ve kapanışta ne kadar beklendiğini belirler. Değerler
+      run başlatılırken o run'a yazılır; çalışan run'ı etkilemez.</p>
+    <div class="row">
+      <label>yerine açma bütçesi
+        <input id="repl" type="number" min="0" max="60" value="24" onchange="saveFleet()">
+        <span class="info" tabindex="0" data-tip="Kaybolan ya da elenen VM yerine run boyunca en fazla kaç yeni VM açılsın. Tükendiğinde sistem yeni VM açmayı bırakır ve kalan VM sayısıyla devam eder — bir run 13 isterken 7 VM ile kaldı, sebebi buydu. 0 = hiç yerine açma.">i</span></label>
+      <label>VM eleme eşiği
+        <input id="vmfail" type="number" min="1" max="10" value="3" onchange="saveFleet()">
+        <span class="info" tabindex="0" data-tip="Bir VM üst üste kaç iş düşürünce elenip yerine yenisi açılsın. Amaç farklı bir çıkış IP'si almak. Sayfa kaynaklı hatalar (yorum durumu okunamadı gibi) bu sayaca yazılmaz — VM'in suçu değil.">i</span></label>
+      <label>drain süresi (sn)
+        <input id="drain" type="number" min="10" max="600" value="90" onchange="saveFleet()">
+        <span class="info" tabindex="0" data-tip="Kapatırken VM'lerde hazır bekleyen paketleri çekmek için tanınan süre. Bu sürede gelmeyen paket kaybolur, o mekan tekrar kazınır. Uzatmak veri kurtarır ama VM'ler o kadar süre daha faturalanır.">i</span></label>
+    </div>
+  </div>
+
+  <div class="panel">
     <h2>Bölgeler</h2>
     <p class="sub">VM'ler seçili bölgelere sırayla dağıtılır — 5 bölge seçip 10 VM istersen
       her bölgeye 2 düşer. Başarı oranları geçmiş run'lardan; Bölgeler sekmesinde detayı var.</p>
@@ -477,47 +522,51 @@ function showTab(t){
 /* Aday bölgeler. Orta Doğu ve ABD listede ama seçili değil: ölçümde
    me-west1 %5, me-central1 ve ABD %0 teslim etti — silmek yerine görünür
    bırakıldı ki neden kullanılmadığı tabloda okunabilsin. */
-const ZONES=[
-  ['europe-west1-b','Belçika'],['europe-west2-c','Londra'],['europe-west3-c','Frankfurt'],
-  ['europe-west4-a','Hollanda'],['europe-west4-b','Hollanda b'],['europe-west6-a','Zürih'],['europe-west8-a','Milano'],
-  ['europe-west9-a','Paris'],['europe-west10-a','Berlin'],['europe-west12-a','Torino'],
-  ['europe-north1-a','Finlandiya'],['europe-north2-a','Stockholm'],
-  ['europe-southwest1-a','Madrid'],['europe-central2-a','Varşova'],
-  ['me-west1-a','Tel Aviv'],['me-central1-a','Doha'],['me-central2-a','Dammam'],
-  ['us-central1-a','ABD orta'],['us-east1-b','ABD doğu'],
-];
-/* Eksikleri toplarken varsayılan deneme sayısı normalden yüksek: o listedeki
-   mekanlar zaten bir kez düşmüş, çoğu da sayfanın o anki hâli yüzünden.
-   Ölçüm: hata paketi üreten 15 mekanın 7'si sonraki denemede tam geldi. */
+/* Bölge seçimi gcloud'dan geliyor; elle tutulan liste büyüdükçe geride kalıyor
+   ve işe yarayacak bölgeyi sessizce gizliyor. Kıtaya göre gruplu ve katlanabilir:
+   130 zone'u düz listelemek seçilebilir bir şey değil. */
+const CONT_TR={europe:'Avrupa',us:'ABD',asia:'Asya',me:'Orta Doğu',
+  southamerica:'Güney Amerika',northamerica:'Kuzey Amerika',
+  australia:'Avustralya',africa:'Afrika'};
 const RETRY_TRIES=5;
 const DEFAULTS={machine:'e2-standard-2',spot:true,capture:true,attempts:3,
-  vms:2,slots:1,
-  zones:ZONES.filter(z=>z[0].startsWith('europe')).map(z=>z[0])};
-let settings={...DEFAULTS}, zoneStats={};
+  vms:2,slots:1,repl:24,vmfail:3,drain:90,
+  zones:['europe-west1-b','europe-west2-c','europe-west3-c','europe-west4-a',
+         'europe-west6-a','europe-west8-a','europe-west9-a','europe-west10-a',
+         'europe-west12-a','europe-north1-a','europe-north2-a',
+         'europe-southwest1-a','europe-central2-a']};
+let settings={...DEFAULTS}, zoneStats={}, zoneGroups=[], openCont={europe:true};
 
 function loadedSettings(){
   try{return {...DEFAULTS, ...JSON.parse(localStorage.hermesSettings||'{}')}}
   catch(e){return {...DEFAULTS}}
 }
+function persist(){ localStorage.hermesSettings=JSON.stringify(settings) }
 function saveSettings(){
   settings.machine=$('machine').value;
   settings.spot=$('spot').checked;
   settings.capture=$('capture').checked;
   settings.attempts=Math.min(10,Math.max(1,+$('attempts').value||3));
   if($('tries')) $('tries').value=settings.attempts;
-  settings.zones=[...document.querySelectorAll('#zonepicker input:checked')].map(i=>i.value);
-  localStorage.hermesSettings=JSON.stringify(settings);
-  renderSetSummary();
+  settings.zones=[...document.querySelectorAll('#zonepicker input.z:checked')].map(i=>i.value);
+  persist(); renderSetSummary(); renderZones();
 }
-/* VM ve slot sayısı sayfa yenilenince kutuların value'suna, yani 2 ve 1'e
-   dönüyordu; "eksikleri dene" o hâlde 13 VM'lik bir run'ı sessizce 2 VM ile
-   sürdürüyordu. Artık son kullanılan değer saklanıyor. */
+function saveFleet(){
+  settings.repl=Math.min(60,Math.max(0,+$('repl').value||24));
+  settings.vmfail=Math.min(10,Math.max(1,+$('vmfail').value||3));
+  settings.drain=Math.min(600,Math.max(10,+$('drain').value||90));
+  persist(); renderSetSummary();
+}
+function applyFleet(){
+  if(!$('repl'))return;
+  $('repl').value=settings.repl; $('vmfail').value=settings.vmfail;
+  $('drain').value=settings.drain;
+}
 function savePool(){
   settings.vms=Math.min(32,Math.max(1,+$('vms').value||2));
   settings.slots=Math.min(3,Math.max(1,+$('slots').value||1));
   if($('tries')) settings.attempts=Math.min(10,Math.max(1,+$('tries').value||3));
-  localStorage.hermesSettings=JSON.stringify(settings);
-  renderSetSummary();
+  persist(); renderSetSummary();
 }
 function applyPool(){
   $('vms').value=settings.vms; $('slots').value=settings.slots;
@@ -530,36 +579,70 @@ function renderSetSummary(){
     + (n?'':' <b class="badge-err">bölge seçilmedi</b>');
   const c=$('zonecount'); if(c)c.textContent=`${n} bölge seçili`;
 }
+function rateOf(z){ const st=zoneStats[z]; return st&&st.success_rate!=null?st.success_rate:null }
+function rateClass(r){ return r==null?'':r>=75?'ok':r>=60?'warn':'err' }
+
+function renderZones(){
+  if(!$('zonepicker'))return;
+  const sel=new Set(settings.zones);
+  $('zonepicker').innerHTML=zoneGroups.map(g=>{
+    const zs=g.zones, secili=zs.filter(z=>sel.has(z.zone)).length;
+    const olculen=zs.map(z=>rateOf(z.zone)).filter(r=>r!=null);
+    const ort=olculen.length?Math.round(olculen.reduce((a,b)=>a+b,0)/olculen.length):null;
+    const acik=!!openCont[g.continent];
+    return `<div class="cgroup ${acik?'open':''}">
+      <div class="chead" onclick="toggleCont('${esc(g.continent)}')">
+        <span class="caret">${acik?'▾':'▸'}</span>
+        <b>${esc(CONT_TR[g.continent]||g.continent)}</b>
+        <span class="pid">${esc(g.continent)}</span>
+        <span class="cnt ${secili?'on':''}">${secili}/${zs.length}</span>
+        ${ort!=null?`<span class="zrate ${rateClass(ort)}">ort %${ort}</span>`:''}
+        <button class="sm" onclick="event.stopPropagation();contPick('${esc(g.continent)}',true)">hepsi</button>
+        <button class="sm" onclick="event.stopPropagation();contPick('${esc(g.continent)}',false)">temizle</button>
+      </div>
+      ${acik?`<div class="zonegrid">${zs.map(z=>{
+        const r=rateOf(z.zone);
+        return `<label class="zonecard ${rateClass(r)}">
+          <input class="z" type="checkbox" value="${esc(z.zone)}"
+            ${sel.has(z.zone)?'checked':''} ${z.up?'':'disabled'}
+            onchange="saveSettings()">
+          <div><b>${esc(z.region)}</b><br><span class="pid">${esc(z.zone)}</span></div>
+          <span class="zrate">${z.up?(r==null?'veri yok':r+'%'):'kapalı'}</span></label>`;
+      }).join('')}</div>`:''}
+    </div>`;
+  }).join('') || '<div class="sub">bölge listesi alınamadı</div>';
+}
+function toggleCont(c){ openCont[c]=!openCont[c]; renderZones() }
+function contPick(c,on){
+  const g=zoneGroups.find(x=>x.continent===c); if(!g)return;
+  const sel=new Set(settings.zones);
+  g.zones.forEach(z=>{ if(!z.up)return; on?sel.add(z.zone):sel.delete(z.zone) });
+  settings.zones=[...sel]; persist(); renderSetSummary(); renderZones();
+}
+function zonePick(kind){
+  if(kind==='none') settings.zones=[];
+  else if(kind==='eu'){
+    const g=zoneGroups.find(x=>x.continent==='europe');
+    settings.zones=g?g.zones.filter(z=>z.up).map(z=>z.zone):[];
+  }else if(kind==='good')
+    settings.zones=Object.keys(zoneStats).filter(z=>zoneStats[z].success_rate>=70);
+  persist(); renderSetSummary(); renderZones();
+}
 async function loadSettings(){
   settings=loadedSettings();
   $('machine').value=settings.machine; $('spot').checked=settings.spot;
-  $('capture').checked=settings.capture;
-  $('attempts').value=settings.attempts;
+  $('capture').checked=settings.capture; $('attempts').value=settings.attempts;
+  applyFleet();
   try{(await j('/api/zones')).forEach(z=>zoneStats[z.zone]=z)}catch(e){}
-  /* Geçmişte kullanılmış ama listede olmayan bölgeler (ör. aynı bölgenin
-     başka harfli zone'u) kaybolmasın; istatistikleri var, seçilebilsinler. */
-  const known=new Set(ZONES.map(z=>z[0]));
-  const extra=Object.keys(zoneStats).filter(z=>z!=='?'&&!known.has(z)).sort()
-                    .map(z=>[z,'listede yok']);
-  $('zonepicker').innerHTML=[...ZONES,...extra].map(([z,label])=>{
-    const st=zoneStats[z], rate=st&&st.success_rate!=null?st.success_rate:null;
-    const cls=rate==null?'':rate>=75?'ok':rate>=60?'warn':'err';
-    return `<label class="zonecard ${cls}">
-      <input type="checkbox" value="${z}" ${settings.zones.includes(z)?'checked':''}
-             onchange="saveSettings()">
-      <div><b>${esc(label)}</b><br><span class="pid">${esc(z)}</span></div>
-      <span class="zrate">${rate==null?'veri yok':rate+'%'}</span></label>`;
-  }).join('');
-  renderSetSummary();
-}
-function zonePick(kind){
-  document.querySelectorAll('#zonepicker input').forEach(i=>{
-    const st=zoneStats[i.value];
-    i.checked = kind==='eu' ? i.value.startsWith('europe')
-              : kind==='good' ? !!(st&&st.success_rate>=70)
-              : false;
-  });
-  saveSettings();
+  if(!zoneGroups.length){
+    $('zonepicker').innerHTML='<div class="sub">bölgeler gcloud\'dan alınıyor…</div>';
+    try{
+      const r=await j('/api/gcpzones');
+      zoneGroups=r.groups||[];
+      if(r.error){ $('zonepicker').innerHTML=`<div class="badge-err">${esc(r.error)}</div>`; return }
+    }catch(e){ $('zonepicker').innerHTML=`<div class="badge-err">${esc(e.message)}</div>`; return }
+  }
+  renderZones(); renderSetSummary();
 }
 
 /* ---------- bölge istatistikleri ---------- */
@@ -667,6 +750,28 @@ async function deleteProfile(){
 }
 async function start(){
   if(!settings.zones.length){ showTab('set'); return }   /* bölgesiz başlatma yok */
+  /* Kotayı ve önceki run'ın bıraktığı VM'leri başlamadan önce sor. Bir run 13
+     VM isteyip 25 başarısız create denemesiyle 7'de kalmıştı; cevap ilk
+     denemeden önce alınabilirdi. */
+  const vmc=+$('vms').value||settings.vms;
+  let pf;
+  try{ pf=await j(`/api/preflight?vm_count=${vmc}&machine_type=${encodeURIComponent(settings.machine)}`) }
+  catch(e){ pf=null }
+  if(pf){
+    const uyari=[];
+    if(pf.stranded&&pf.stranded.length)
+      uyari.push(`Önceki run hâlâ ${pf.stranded.length} VM tutuyor `
+        +`(${pf.stranded.map(n=>n.slice(-6)).join(', ')}).\n`
+        +`Yeni run başlatılırsa onlara ulaşan kimse kalmaz ve faturalanmaya devam ederler.\n`
+        +`Önce "Tüm VM'leri kapat" çalıştırın.`);
+    const q=pf.quota||{};
+    if(q.known&&!q.ok)
+      uyari.push(`Kota yetmiyor: ${vmc} VM için ${q.need} vCPU gerek, `
+        +`${q.free} boş (limit ${q.limit}, kullanım ${q.usage}).\n`
+        +`Bu makine tipiyle en fazla ${q.fits_vms} VM açılabilir; gerisi `
+        +`CPUS_ALL_REGIONS hatası verir.`);
+    if(uyari.length && !confirm(uyari.join('\n\n')+'\n\nYine de başlatılsın mı?')) return;
+  }
 
   $('startBtn').disabled=true;
   try{
@@ -675,7 +780,9 @@ async function start(){
         provider:$('provider').value,vm_count:+$('vms').value,slots:+$('slots').value,
         machine_type:settings.machine,spot:settings.spot,
         capture_failures:settings.capture,zones:settings.zones,
-        max_attempts:+$('tries').value||settings.attempts})});
+        max_attempts:+$('tries').value||settings.attempts,
+        max_replacements:settings.repl,vm_fail_limit:settings.vmfail,
+        drain_timeout:settings.drain,force:true})});
     running=true;$('stopBtn').disabled=false;
   }catch(e){alert(e.message);$('startBtn').disabled=false}
 }
@@ -788,6 +895,11 @@ async function tick(){
     pill('pending',c.pending||0)+pill('failed',failed,failed?'badge-err':'')+
     vmPills(s.vms)+
     pill('deneme',s.max_attempts??'–')+
+    (s.max_replacements!=null?pill('yedek VM',`${s.replacements??0}/${s.max_replacements}`,
+      (s.replacements??0)>=s.max_replacements?'badge-err':'')+
+      ((s.replacements??0)>=s.max_replacements
+        ? '<span class="badge-err" style="font-size:10px;font-weight:700">'
+          +'yerine açma bütçesi bitti — filo bu sayıda kalır</span>' : ''):'')+
     pill('profil',esc(s.profile))+pill('provider',esc(s.provider));
   $('prog').style.width=Math.round(100*(done+failed)/total)+'%';
   const active=Object.entries(s.jobs||{}).filter(([,x])=>x.state==='scraping'&&x.progress);
@@ -968,6 +1080,8 @@ async function retryFailed(stem,execId){
         machine_type:settings.machine,spot:settings.spot,
         capture_failures:settings.capture,zones:settings.zones,
         max_attempts:tries,
+        max_replacements:settings.repl,vm_fail_limit:settings.vmfail,
+        drain_timeout:settings.drain,
         place_ids:f.places.map(p=>p.place_id),retry_of:execId})});
     alert(`Başladı: ${r.exec_id} (${r.places} mekan)`);
     showTab('ctl');

@@ -20,14 +20,37 @@ hâlinden gelir (200 GB disk uyarısı gibi gürültü temizlenir).
 
 Bölge başına sınırlar vardır ve genelde ilk çarpılan bunlardır:
 
-| kota | tipik değer | ne zaman vurur |
-|---|---|---|
-| `CPUS` | bölgeye göre | e2-standard-2 = 2 vCPU, yani bölge başına ~4 VM |
-| `INSTANCES` | 24 | çok sayıda VM |
-| `IN_USE_ADDRESSES` | 8 | her VM bir dış IP alır — **bölge başına 8 VM tavanı** |
+| kota | kapsam | tipik değer | ne zaman vurur |
+|---|---|---|---|
+| **`CPUS_ALL_REGIONS`** | **proje geneli** | **32** | **asıl tavan budur** |
+| `CPUS` | bölge | bölgeye göre | tek bölgeye yığarken |
+| `INSTANCES` | bölge | 24 | çok sayıda VM |
+| `IN_USE_ADDRESSES` | bölge | 8 | her VM bir dış IP alır |
 
-Bu yüzden 13 VM'i 13 ayrı bölgeye dağıtmak, 13'ünü tek bölgeye yığmaktan hem
-daha güvenli hem de daha hızlıdır.
+`CPUS_ALL_REGIONS` **global**; bölgelere yaymak onu rahatlatmaz. e2-standard-2
+başına 2 vCPU demek, 32'lik limitte proje genelinde **en fazla 16 VM** demektir
+— kaç bölge seçildiğinden bağımsız. Bir run 13 VM isteyip 7 ile kaldı: üç
+yetim VM 6 vCPU tutuyordu ve kalan yer yetmedi, 25 create denemesi bu hatayı
+aldı.
+
+Bölgelere yaymak yine de gerekli: `IN_USE_ADDRESSES` ve bölge `CPUS` kotaları
+bölge başına, ayrıca farklı çıkış IP'si engellenme riskini düşürüyor.
+
+Kotayı okumak:
+
+```bash
+gcloud compute project-info describe --format="json(quotas)" \
+  | python3 -c "import json,sys;[print(q['metric'],q['usage'],'/',q['limit']) \
+      for q in json.load(sys.stdin)['quotas'] if 'CPUS' in q['metric']]"
+```
+
+Artırmak gcloud'dan yapılmaz, konsoldan istenir:
+**IAM & Admin → Quotas & System Limits → "CPUs (all regions)" → EDIT QUOTAS**.
+Talep genelde dakikalar içinde otomatik onaylanır; büyük artışlar elle
+incelenir. Fatura hesabı bağlı olmayan projelerde tavan düşük kalır.
+
+Arayüz artık run başlatmadan önce bunu kendisi soruyor: yer yetmiyorsa kaç VM
+sığdığını söyler, önceki run'ın bıraktığı VM varsa uyarır.
 
 ---
 

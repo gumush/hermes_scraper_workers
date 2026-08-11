@@ -28,6 +28,7 @@ Run:  python orchestrator/coordinator.py   (port: ORCH_PORT, default 8140)
 import json
 import logging
 import os
+import re
 import secrets
 import shutil
 import signal
@@ -163,7 +164,10 @@ class Execution:
                  zones: Optional[List[str]] = None,
                  place_ids: Optional[List[str]] = None,
                  capture_failures: bool = True,
-                 max_attempts: int = MAX_ATTEMPTS):
+                 max_attempts: int = MAX_ATTEMPTS,
+                 max_replacements: int = MAX_REPLACEMENTS,
+                 vm_fail_limit: int = VM_FAIL_LIMIT,
+                 drain_timeout: int = DRAIN_TIMEOUT):
         self.id = datetime.now(timezone.utc).strftime("exec-%Y%m%d-%H%M%S")
         self.run_file = run_file
         run_json = json.loads((RUNS_DIR / run_file).read_text())
@@ -224,6 +228,9 @@ class Execution:
         # measured 7 of 15 flagged places were delivered in full by a later
         # attempt, and each attempt lands on a different machine and address.
         self.max_attempts = max(1, int(max_attempts))
+        self.max_replacements = max(0, int(max_replacements))
+        self.vm_fail_limit = max(1, int(vm_fail_limit))
+        self.drain_timeout = max(10, int(drain_timeout))
         self.zones = zones
         if provider_name == "gcp":
             self.provider = GcpProvider(self.api_key, self.dir / "vmout",
@@ -258,6 +265,9 @@ class Execution:
             "profile": self.profile_name, "provider": self.provider_name,
             "vm_count": self.vm_count, "total": len(jobs), "counts": counts,
             "max_attempts": self.max_attempts,
+            "max_replacements": self.max_replacements,
+            "replacements": self.replacements,
+            "vm_fail_limit": self.vm_fail_limit,
             "vms": [{k: v for k, v in vm.items() if k != "active"} |
                     {"active": len(vm["active"])} for vm in self.vms],
             "jobs": {p: {**{k: j[k] for k in
@@ -523,7 +533,7 @@ class Execution:
         want = max(1, min(self.vm_count, remaining))
         if len(alive) >= want:
             return
-        budget = MAX_REPLACEMENTS - self.replacements
+        budget = self.max_replacements - self.replacements
         if budget <= 0:
             if not self._replacement_cap_logged:
                 self._replacement_cap_logged = True
@@ -816,7 +826,7 @@ class Execution:
         if not blame_vm:
             return
         vm["consecutive_fails"] = vm.get("consecutive_fails", 0) + 1
-        if vm["consecutive_fails"] >= VM_FAIL_LIMIT and vm["state"] == "ready":
+        if vm["consecutive_fails"] >= self.vm_fail_limit and vm["state"] == "ready":
             self.log_event("vm_retired", vm=vm["name"],
                            consecutive_fails=vm["consecutive_fails"],
                            egress_ip=vm.get("egress_ip"))
@@ -890,8 +900,8 @@ class Execution:
         drainable = [vm for vm in self.vms if vm["state"] == "ready"]
         if drainable:
             self.log_event("drain_started", vms=len(drainable),
-                           deadline_s=DRAIN_TIMEOUT)
-            deadline = time.time() + DRAIN_TIMEOUT
+                           deadline_s=self.drain_timeout)
+            deadline = time.time() + self.drain_timeout
             self.drain = {"vms": len(drainable), "pulled": 0, "failed": 0,
                           "deadline": deadline, "state": "çekiliyor"}
             self.persist()
@@ -946,6 +956,10 @@ class StartRequest(BaseModel):
     spot: bool = False
     zones: Optional[List[str]] = None   # VMs are spread across these in order
     max_attempts: int = MAX_ATTEMPTS    # VMs a place is tried on before failing
+    max_replacements: int = MAX_REPLACEMENTS  # budget for replacing lost VMs
+    vm_fail_limit: int = VM_FAIL_LIMIT  # consecutive failures before retiring a VM
+    drain_timeout: int = DRAIN_TIMEOUT  # seconds spent rescuing packages
+    force: bool = False                 # start despite the pre-flight warnings
     place_ids: Optional[List[str]] = None  # subset to run (retry of a failed set)
     retry_of: Optional[str] = None         # exec_id this retry came from
     capture_failures: bool = True          # screenshot + DOM on a failed place
@@ -1140,11 +1154,107 @@ def gcp_status():
     return GcpProvider.check()
 
 
+def _quota_headroom(vm_count: int, machine_type: str) -> Dict[str, Any]:
+    """
+    Whether the fleet fits before a single VM is created.
+
+    CPUS_ALL_REGIONS is a project-wide ceiling; spreading across zones does
+    nothing for it. One run asked for 13 machines against a 32-vCPU limit
+    that three leftovers were already eating, and learned the answer 25
+    failed create calls later.
+    """
+    per_vm = 2
+    m = re.search(r"-(\d+)$", machine_type or "")
+    if m:
+        per_vm = int(m.group(1))
+    try:
+        out = subprocess.run(["gcloud", "compute", "project-info", "describe",
+                              "--format=json(quotas)"],
+                             capture_output=True, text=True, timeout=60)
+        quotas = json.loads(out.stdout)["quotas"] if out.returncode == 0 else []
+    except Exception as e:  # noqa: BLE001
+        return {"known": False, "reason": str(e)[:120]}
+    q = next((x for x in quotas if x["metric"] == "CPUS_ALL_REGIONS"), None)
+    if not q:
+        return {"known": False, "reason": "CPUS_ALL_REGIONS bulunamadı"}
+    free = q["limit"] - q["usage"]
+    need = vm_count * per_vm
+    return {"known": True, "limit": q["limit"], "usage": q["usage"],
+            "free": free, "need": need, "per_vm": per_vm,
+            "fits_vms": int(free // per_vm), "ok": need <= free}
+
+
+def _stranded_vms() -> List[str]:
+    """VMs a finished execution still owns — nothing can reach them once a
+    new run replaces it, and they keep billing."""
+    if not _current or _current.state in LIVE_STATES:
+        return []
+    return [v["name"] for v in _current.vms if v["state"] != "deleted"]
+
+
+_ZONE_CACHE: Dict[str, Any] = {}
+
+
+@app.get("/api/gcpzones")
+def gcp_zones():
+    """
+    Every zone the project can use, grouped by continent.
+
+    Asked from gcloud rather than hard-coded: the list grows, and a picker
+    built from a stale copy quietly hides the region that would have worked.
+    Cached for the process — zones do not appear mid-run.
+    """
+    if _ZONE_CACHE.get("groups"):
+        return _ZONE_CACHE
+    try:
+        out = subprocess.run(
+            ["gcloud", "compute", "zones", "list",
+             "--format=value(name,region.basename(),status)"],
+            capture_output=True, text=True, timeout=90)
+        if out.returncode != 0:
+            return {"groups": [], "error": _gcloud_reason(out.stderr)}
+    except Exception as e:  # noqa: BLE001
+        return {"groups": [], "error": str(e)[:150]}
+
+    groups: Dict[str, Dict[str, Any]] = {}
+    for line in out.stdout.strip().splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        zone, region = parts[0], parts[1]
+        status = parts[2] if len(parts) > 2 else "UP"
+        continent = re.sub(r"[-]?[a-z]*\d+$", "", region) or region
+        g = groups.setdefault(continent, {"continent": continent, "zones": []})
+        g["zones"].append({"zone": zone, "region": region, "up": status == "UP"})
+    for g in groups.values():
+        g["zones"].sort(key=lambda z: z["zone"])
+    _ZONE_CACHE["groups"] = sorted(groups.values(), key=lambda g: g["continent"])
+    return _ZONE_CACHE
+
+
+@app.get("/api/preflight")
+def preflight(vm_count: int = 13, machine_type: str = "e2-standard-2"):
+    """What would go wrong if a run started right now."""
+    return {"quota": _quota_headroom(vm_count, machine_type),
+            "stranded": _stranded_vms()}
+
+
 @app.post("/api/start")
 def start(req: StartRequest):
     global _current
     if _current and _current.state in LIVE_STATES:
         raise HTTPException(409, f"execution {_current.id} is {_current.state}")
+    # A finished execution can still own running VMs: the drive loop exits but
+    # leaves them up so the run can be continued. Starting a new run replaces
+    # the execution object, and with it the only handle on those machines —
+    # three were found still billing an hour later, eating the quota that the
+    # new run then failed to allocate against.
+    stranded = _stranded_vms()
+    if stranded and not req.force:
+        raise HTTPException(409,
+            f"önceki run ({_current.id}) hâlâ {len(stranded)} VM tutuyor: "
+            f"{', '.join(n[-6:] for n in stranded[:5])}. Önce 'Tüm VM'leri kapat' "
+            f"çalıştırın; yine de başlatmak için force.")
     profiles = _profiles()
     if req.profile not in profiles:
         raise HTTPException(404, f"profile not found: {req.profile}")
@@ -1155,6 +1265,9 @@ def start(req: StartRequest):
                          machine_type=req.machine_type, spot=req.spot,
                          zones=req.zones, place_ids=req.place_ids,
                          max_attempts=req.max_attempts,
+                         max_replacements=req.max_replacements,
+                         vm_fail_limit=req.vm_fail_limit,
+                         drain_timeout=req.drain_timeout,
                          capture_failures=req.capture_failures)
     _current.log_event("execution_created", run=_current.run_name,
                        profile=req.profile, provider=req.provider,
