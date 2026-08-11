@@ -265,7 +265,7 @@ class GcpProvider:
         install = (
             "mkdir -p ~/scraper && tar xzf /tmp/scraper.tar.gz -C ~/scraper && "
             "cd ~/scraper && python3 -m venv .venv && "
-            ".venv/bin/pip install -q -r requirements.txt && "
+            ".venv/bin/pip install -q -r requirements.txt -c constraints.txt && "
             "cp config.sample.yaml config.yaml"
         )
         self._ssh(name, zone, install, timeout=600)

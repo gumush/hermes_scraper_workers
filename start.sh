@@ -18,7 +18,7 @@ if [ ! -d "$VENV" ]; then
   echo "› sanal ortam kuruluyor"
   python3 -m venv "$VENV"
   "$VENV/bin/pip" install --quiet --upgrade pip
-  "$VENV/bin/pip" install --quiet -r requirements.txt
+  "$VENV/bin/pip" install --quiet -r requirements.txt -c constraints.txt
 fi
 PY="$VENV/bin/python"
 

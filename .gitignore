@@ -1,21 +1,45 @@
-# --- üretilen veri: hiçbiri versiyonlanmaz ---
-outputs/                    # teslim edilen paketler (GB'lar)
-orchestrator/state/         # exec durumu, hata paketleri, ekran görüntüleri
-orchestrator/runs/          # run tanımları (place_id listeleri)
-orchestrator/profiles.json  # yerel profil ayarları
-spot_out/                   # worker'ın çalışma alanı
+# Git satır içi yorum tanımaz: "outputs/  # açıklama" satırının tamamı kalıp
+# sayılır ve hiçbir şeyle eşleşmez. Açıklamalar bu yüzden kendi satırlarında.
+
+# --- üretilen veri ---
+# Teslim edilen paketler (GB'lar), exec durumu ve hata paketleri, run
+# tanımları, worker çalışma alanı. Hiçbiri versiyonlanmaz.
+outputs/
+orchestrator/state/
+orchestrator/runs/
+spot_out/
 logs/
 *.log
 
+# Profiller ilk çalıştırmada DEFAULT_PROFILES'tan üretilir; yereldeki
+# düzenlemeler kişiseldir.
+orchestrator/profiles.json
+
+# Gerçek ayar dosyası; config.sample.yaml versiyonlanır ve VM kurulumunda
+# ondan kopyalanır.
+config.yaml
+
+# --- kazıma motorunun bıraktıkları ---
+# Testler ve SeleniumBase çalışırken bunları üretir.
+reviews.db
+*.sqlite
+*.sqlite3
+downloaded_files/
+review_images/
+place_photos/
+
 # --- çalışma zamanı ---
 .venv/
+venv/
 __pycache__/
 *.py[cod]
 .pytest_cache/
-config.yaml                 # gerçek ayar; sample versiyonlanır
+.ruff_cache/
 
 # --- işletim sistemi / editör ---
 .DS_Store
+Thumbs.db
 .idea/
 .vscode/
 .claude/
+*.swp
