@@ -595,6 +595,10 @@ class Execution:
         """
         if self.shutdown_requested or self.paused:
             return
+        # Same reason: a replacement local worker is the same machine behind
+        # the same address. Attempts are the only dial that means anything.
+        if self.provider_name == "local":
+            return
         remaining = sum(1 for j in self.jobs.values()
                         if j["state"] in ("pending", "scraping", "transferring"))
         if not remaining:
@@ -898,6 +902,11 @@ class Execution:
         """
         if ok:
             vm["consecutive_fails"] = 0
+            return
+        # Locally there is one machine and one address. Retiring a worker
+        # cannot change either, so a run of failures here is about the pages,
+        # not the worker — replacing it just restarts a browser for nothing.
+        if self.provider_name == "local":
             return
         if not blame_vm:
             return

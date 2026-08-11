@@ -438,3 +438,32 @@ def test_resetting_the_budget_lets_a_stalled_run_try_again(monkeypatch):
 def test_resetting_without_a_run_is_refused(monkeypatch):
     monkeypatch.setattr(coordinator, "_current", None)
     assert status_of(coordinator.reset_replacements) == 409
+
+
+# --- yerel çalıştırmada VM yönetimi -------------------------------------------
+
+def _scored(provider, fails_before):
+    e = object.__new__(coordinator.Execution)
+    e.provider_name = provider
+    e.vm_fail_limit = 3
+    e.log_event = lambda *a, **k: None
+    e._vm_lost = lambda vm, why: vm.__setitem__("retired", why)
+    vm = {"state": "ready", "consecutive_fails": fails_before, "name": "w0"}
+    e._vm_scored(vm, ok=False)
+    return vm
+
+
+def test_local_workers_are_not_retired_for_failing():
+    """
+    One machine, one address: retiring a local worker cannot change either,
+    so a run of failures there is about the pages and replacing the worker
+    just restarts a browser for nothing.
+    """
+    vm = _scored("local", fails_before=2)
+    assert "retired" not in vm
+    assert vm["consecutive_fails"] == 2, "yerelde sayaç bile artmamalı"
+
+
+def test_cloud_vms_are_still_retired_on_a_run_of_failures():
+    vm = _scored("gcp", fails_before=2)
+    assert vm.get("retired") == "3 ardışık başarısız iş"
