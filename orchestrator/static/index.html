@@ -351,7 +351,7 @@ td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
   <div class="row" id="setup">
     <select id="run"></select>
     <select id="profile" onchange="renderProfSummary()"></select>
-    <select id="provider">
+    <select id="provider" onchange="syncRetryProviders()">
       <option value="local">local (test)</option>
       <option value="gcp">gcp</option>
     </select>
@@ -1114,6 +1114,12 @@ async function loadBrowse(){
                     <label>deneme <input type="number" min="1" max="10"
                       value="${Math.min(10,Math.max(settings.attempts,RETRY_TRIES))}"
                       id="rt_${esc(e.exec_id)}"></label>
+                    <label title="Yerelde bu makinenin IP'si kullanılır. Datacenter adresine
+sayfası eksik gelen mekanlar burada açılabiliyor — iki mekan tam bunu yaptı: 10 VM'de
+yorumlar hiç gelmedi, aynı sayfa ev bağlantısında yorumlarıyla birlikte geldi."
+                      >nerede <select id="rp_${esc(e.exec_id)}">
+                      <option value="gcp">gcp</option>
+                      <option value="local">yerel</option></select></label>
                   </span>
                   <button onclick="event.stopPropagation();retryFailed('${esc(r.run_stem)}','${esc(e.exec_id)}')"
                     title="Teslim edilmemiş mekanları yeni bir run'da tekrar dene">↻ eksikler</button>
@@ -1124,6 +1130,13 @@ async function loadBrowse(){
       </div>
     </div>`;
   }).join('');
+  syncRetryProviders();
+}
+/* Satırdaki seçim, Kontrol'de duran sağlayıcıyla başlasın — retry genelde
+   aynı şekilde yapılır, farklısı istendiğinde tek tıkla değiştirilir. */
+function syncRetryProviders(){
+  const v=$('provider')?$('provider').value:'gcp';
+  document.querySelectorAll('select[id^="rp_"]').forEach(el=>{ el.value=v });
 }
 function toggleFam(i){
   const b=$('fam'+i); b.classList.toggle('hide');
@@ -1288,13 +1301,14 @@ async function retryFailed(stem,execId){
   const vms=+($('rv_'+execId)||{}).value||settings.vms;
   const slots=+($('rs_'+execId)||{}).value||settings.slots;
   const tries=+($('rt_'+execId)||{}).value||settings.attempts;
+  const prov=($('rp_'+execId)||{}).value||$('provider').value;
   const dagilim=Object.entries((f.places||[]).reduce((a,p)=>{
     const k=p.state||'?';a[k]=(a[k]||0)+1;return a},{}))
     .map(([k,v])=>`${k} ${v}`).join(' · ');
   if(!confirm(
     `${f.count} mekan tekrar denenecek (${dagilim}).\n\n`
-    +`Havuz:    ${vms} VM · ${slots} slot · ${$('provider').value}`
-    +` · profil ${$('profile').value}\n`
+    +`Havuz:    ${vms} ${prov==='local'?'yerel worker':'VM'} · ${slots} slot`
+    +` · ${prov==='local'?'bu makinede':'gcp'} · profil ${$('profile').value}\n`
     +`Ayarlar sekmesinden:  ${settings.machine} · ${settings.spot?'spot':'normal'}`
     +` · ${settings.zones.length} bölge\n`
     +`Deneme:   mekan başına ${tries} ayrı VM\n\n`
@@ -1302,7 +1316,7 @@ async function retryFailed(stem,execId){
   try{
     const r=await j('/api/start',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({run_file:f.run_file,profile:$('profile').value,
-        provider:$('provider').value,vm_count:vms,slots:slots,
+        provider:prov,vm_count:vms,slots:slots,
         machine_type:settings.machine,spot:settings.spot,
         capture_failures:settings.capture,zones:settings.zones,
         max_attempts:tries,
