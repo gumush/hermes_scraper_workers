@@ -1700,6 +1700,28 @@ def restart():
     return {"ok": True}
 
 
+@app.post("/api/replacements/reset")
+def reset_replacements():
+    """
+    Give the run a fresh replacement budget without restarting it.
+
+    The budget stops a broken setup spinning up VMs forever, but it also
+    stops a run that hit a temporary wall — a quota that has since freed up,
+    a zone that came back. Spending it did not use to be recoverable: the
+    fleet stayed at whatever it had and the jobs waited. Resetting is a
+    decision, so it is a button rather than a higher default.
+    """
+    if not _current:
+        raise HTTPException(409, "çalışan run yok")
+    was = _current.replacements
+    _current.replacements = 0
+    _current._replacement_cap_logged = False
+    _current.log_event("replacement_budget_reset", was=was,
+                       budget=_current.max_replacements)
+    _current.persist()
+    return {"was": was, "budget": _current.max_replacements}
+
+
 @app.post("/api/pause")
 def pause(paused: bool = True):
     """Duraklat/devam et: yeni iş dağıtımını durdurur, VM'ler ayakta kalır."""

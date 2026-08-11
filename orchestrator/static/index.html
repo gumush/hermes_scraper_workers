@@ -129,6 +129,11 @@ label{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-siz
 .pgrp::before{content:"";position:absolute;left:0;top:3px;bottom:3px;
   width:1px;background:var(--line)}
 .pgrp:first-child::before{display:none}
+.capnote{display:flex;align-items:center;gap:8px;align-self:center;
+  font-size:10px;font-weight:700;color:var(--red);
+  background:var(--red-soft);border:1px solid #f3c9c9;
+  border-radius:8px;padding:4px 8px}
+.capnote b{font-weight:800}
 .glabel{display:block;width:100%;font-style:normal;font-size:8px;font-weight:800;
   letter-spacing:.09em;text-transform:uppercase;color:var(--subtle);
   margin-bottom:2px}
@@ -996,9 +1001,11 @@ async function tick(){
       pill('profil',esc(s.profile))+
       pill('provider',esc(s.provider)));
   if((s.replacements??0)>=(s.max_replacements??1e9))
-    $('chips').innerHTML+='<span class="badge-err" style="font-size:10px;'
-      +'font-weight:700;align-self:center">yerine açma bütçesi bitti — '
-      +'filo bu sayıda kalır</span>';
+    $('chips').innerHTML+='<span class="capnote">'
+      +'<b>yerine açma bütçesi bitti</b> — filo bu sayıda kalır'
+      +'<button class="sm" onclick="resetBudget()" '
+      +'title="Sayacı sıfırlar; run durmadan yeniden VM açmayı dener">'
+      +'sayacı sıfırla</button></span>';
   $('prog').style.width=Math.round(100*(done+failed)/total)+'%';
   const active=Object.entries(s.jobs||{}).filter(([,x])=>x.state==='scraping'&&x.progress);
   // Elenmiş VM'ler run boyunca birikiyor; kapasiteyi okumayı zorlaştırmasın
@@ -1167,6 +1174,16 @@ async function delDefinition(file){
 function toggleRun(i){
   const b=$('runbody'+i); b.classList.toggle('hide');
   $('dc'+i).textContent=b.classList.contains('hide')?'▸':'▾';
+}
+
+async function resetBudget(){
+  if(!confirm('Yerine açma sayacı sıfırlanacak; run durmadan yeniden VM açmayı '
+    +'deneyecek.\n\nBütçe tükendiği koşul hâlâ sürüyorsa (kota dolu, bölgede '
+    +'kapasite yok) aynı hatalar tekrarlanır — önce sebebi giderin.\n\nDevam?'))return;
+  try{
+    const r=await j('/api/replacements/reset',{method:'POST'});
+    alert(`Sayaç sıfırlandı (${r.was} → 0, bütçe ${r.budget}).`);
+  }catch(e){ alert('sıfırlanamadı: '+e.message) }
 }
 
 /* ---------- servisi kapat ---------- */

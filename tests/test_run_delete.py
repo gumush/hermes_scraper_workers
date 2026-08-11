@@ -411,3 +411,30 @@ def test_failed_and_queued_are_counted_apart():
 
 def test_in_flight_work_counts_as_not_delivered_yet():
     assert _tally({"done": 5, "transferring": 2}) == {"failed": 0, "kalan": 2}
+
+
+# --- yerine açma bütçesi ------------------------------------------------------
+
+def test_resetting_the_budget_lets_a_stalled_run_try_again(monkeypatch):
+    """
+    The budget stops a broken setup spinning up VMs forever, but it also
+    stopped a run that hit a quota which later freed up: the fleet stayed at
+    seven and the jobs waited with no way back short of a restart.
+    """
+    e = object.__new__(coordinator.Execution)
+    e.replacements = 24
+    e.max_replacements = 24
+    e._replacement_cap_logged = True
+    e.persist = lambda: None
+    e.log_event = lambda *a, **k: None
+    monkeypatch.setattr(coordinator, "_current", e)
+
+    r = coordinator.reset_replacements()
+    assert r == {"was": 24, "budget": 24}
+    assert e.replacements == 0
+    assert e._replacement_cap_logged is False
+
+
+def test_resetting_without_a_run_is_refused(monkeypatch):
+    monkeypatch.setattr(coordinator, "_current", None)
+    assert status_of(coordinator.reset_replacements) == 409
